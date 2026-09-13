@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>走遍中国 · 隐私政策</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 32px 20px 64px;
+    background: #070B14; color: #EAF0FA;
+    font: 15px/1.75 -apple-system, "HarmonyOS Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  h2 { font-size: 17px; color: #F5C542; margin: 32px 0 8px; }
+  .meta { color: #8A99B5; font-size: 13px; margin-bottom: 24px; }
+  .lead { color: #8A99B5; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  code { background: #111A29; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .todo { color: #FF6B6B; font-weight: 600; }
+  footer { color: #8A99B5; font-size: 12px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>走遍中国 · 隐私政策</h1>
+  <p class="meta">版本 v1.0　生效日期：2026-09-14</p>
+  <p class="lead">走遍中国是一款"记录你去过哪些城市"的本地工具应用。我们坚持最小必要原则：不注册也能使用全部核心功能，位置与账号都由你主动触发。</p>
+  <h2>一、我们收集哪些信息</h2>
+  <ul>
+    <li><strong>位置信息（可选）</strong>：只有当你主动点击"定位到我的位置"时，应用才会通过系统定位能力获取一次当前位置，用于识别你当前所在的地级市，方便一键点亮。</li>
+    <li><strong>足迹数据（仅本机）</strong>：你点亮的城市、日期、标签、备注、同行人，全部保存在本机应用沙箱内。</li>
+    <li><strong>华为账号信息（可选）</strong>：只有当你主动点击"登录华为账号"时，应用才会保存华为账号返回的 openID / unionID，用于在云同步时区分数据归属。</li>
+  </ul>
+  <h2>二、我们不收集什么</h2>
+  <ul>
+    <li>不读取通讯录、短信、相册、剪贴板；</li>
+    <li>不获取设备唯一标识（IMEI / OAID 等），不做用户画像；</li>
+    <li>不接入任何第三方广告或统计 SDK，不向第三方出售、共享你的个人信息；</li>
+    <li>位置信息不上传、不留存轨迹。</li>
+  </ul>
+  <h2>三、信息如何存储与使用</h2>
+  <ul>
+    <li>默认全部数据仅保存在本机（应用沙箱数据库 <code>footprint.db</code>），卸载应用即删除。</li>
+    <li>只有当你主动登录华为账号并点击"立即同步"后，足迹数据才会通过华为云同步到你自己账号下；开发者无法读取你在云端的个人数据。</li>
+    <li>位置信息仅用于"当前城市识别"，使用后即丢弃，不写日志、不上传。</li>
+  </ul>
+  <h2>四、使用的第三方服务</h2>
+  <ul>
+    <li><strong>华为 Map Kit</strong>（地图底图、坐标转换、审图号展示）——由华为提供地图服务；</li>
+    <li><strong>华为 Account Kit</strong>（华为账号登录）；</li>
+    <li><strong>华为云（Cloud Foundation Kit）</strong>（仅在开启云同步时使用）。</li>
+  </ul>
+  <p>上述服务均按华为官方的隐私声明处理数据。</p>
+  <h2>五、你的权利</h2>
+  <ul>
+    <li><strong>查看与导出</strong>：我的 → "导出我的足迹"，可导出 JSON 文件；</li>
+    <li><strong>更正与删除</strong>：在我的 → 清单中删除对应记录，或使用 我的 → "清除本机足迹数据"；</li>
+    <li><strong>撤回同意</strong>：卸载应用即撤回，本机数据同时被删除。</li>
+  </ul>
+  <h2>六、未成年人保护</h2>
+  <p>本应用不面向 14 周岁以下儿童单独提供服务，也不会主动收集儿童个人信息。如监护人发现相关情况，可通过下方联系方式要求删除。</p>
+  <h2>七、政策更新</h2>
+  <p>隐私政策如有实质性变更，应用会在启动时重新征求你的同意，并更新版本号。</p>
+  <h2>八、联系我们</h2>
+  <ul>
+    <li>开发者：个人开发者（走遍中国）</li>
+    <li>联系邮箱：<span class="todo">【发布前请填写】</span></li>
+  </ul>
+  <p>如果你对本政策有任何疑问、意见或投诉，可以通过上述邮箱联系我们，我们将在 15 个工作日内回复。</p>
+  <footer>本页可直接托管在 GitHub Pages / 任意静态站点，用于 AGC「隐私政策网址」栏。</footer>
+</main>
+</body>
+</html>

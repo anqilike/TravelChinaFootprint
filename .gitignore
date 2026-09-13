@@ -1,0 +1,23 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+/.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+
+# 签名材料：绝对不要提交
+*.p12
+*.cer
+*.p7b
+*.keystore
+signature/
+
+# 构建产物
+*.hap
+*.app

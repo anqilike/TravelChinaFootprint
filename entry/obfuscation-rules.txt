@@ -1,0 +1,9 @@
+# 混淆规则（release 构建时启用）
+-enable-property-obfuscation
+-enable-toplevel-obfuscation
+-enable-filename-obfuscation
+-enable-export-obfuscation
+-keep-property-name
+  adcode
+  visitDate
+  leaveDate

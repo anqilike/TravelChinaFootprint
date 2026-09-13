@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "走遍中国主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "记录你去过的每一座城市"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "走遍中国"
+    },
+    {
+      "name": "location_permission_reason",
+      "value": "用于识别你当前所在的城市，以便一键记录到访。位置信息仅在本机处理，不会上传。"
+    }
+  ]
+}

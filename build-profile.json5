@@ -1,0 +1,50 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\87563\\.ohos\\config\\default_TravelChinaFootprint_k9Q7JWG5rted7DvsBIaFzI99eN0GpneceHnEWxCXELw=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B166E6BB57E1D71A3CA75E475D09CFC34DBE72894EB7DB757E3A935A8764B73BDA7EDB772C3D254",
+          "profile": "C:\\Users\\87563\\.ohos\\config\\travelchina_debug.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\87563\\.ohos\\config\\default_TravelChinaFootprint_k9Q7JWG5rted7DvsBIaFzI99eN0GpneceHnEWxCXELw=.p12",
+          "storePassword": "0000001B7E9592E773F8048F384A29E027C8A62BD72AAA1BF56ABDAECE3A5E7178C39594275EA69306A5FD"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

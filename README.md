@@ -18,6 +18,9 @@
 - [隐私政策](docs/隐私政策.md) ｜ [可托管的 HTML 版](docs/privacy-policy.html)
 - [应用市场素材](docs/应用市场素材.md)：商店文案、权限说明、隐私标签、截图清单
 
+**隐私政策公网网址**（已用 GitHub Pages 托管，可直接填进 AGC）：
+<https://anqilike.github.io/TravelChinaFootprint/privacy-policy.html>
+
 ---
 
 ## 一、当前状态

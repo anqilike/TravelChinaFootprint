@@ -14,6 +14,10 @@ import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { PrivacyPolicyView } from './PrivacyPolicy';
+import { AchievementEngine } from '../viewmodel/AchievementEngine';
+import { AchievementEffects, EffectInfo } from '../viewmodel/AchievementEffects';
+import { BadgeCell } from '../viewmodel/BadgeCell';
+import { BadgeCard } from './BadgeCard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'SettingsPage';
@@ -44,6 +48,10 @@ export struct SettingsPage {
   @Local clearing: boolean = false;
   /** 入场动效标记 */
   @Local entered: boolean = false;
+  /** 当前选中的徽章点亮动画编号 */
+  @Local effectIndex: number = 0;
+  /** 试播用的演示徽章（与统计页里的徽章共用同一套渲染与动画） */
+  private demoCell: BadgeCell = new BadgeCell('demo', '演示徽章', '点亮时的动画效果', '🏅');
 
   /** 华为账号一键登录按钮参数（Account Kit 官方组件） */
   private loginParams: loginComponentManager.LoginWithHuaweiIDButtonParams = {
@@ -76,6 +84,41 @@ export struct SettingsPage {
     this.loggedIn = AccountService.isLoggedIn();
     this.accountShortId = AccountService.shortId();
     this.playEnter();
+    this.demoCell.unlocked = true;
+    this.demoCell.progress = 1;
+    this.demoCell.target = 1;
+    this.loadEffectIndex();
+  }
+
+  private async loadEffectIndex(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      this.effectIndex = await AchievementEngine.getEffectIndex(context);
+    } catch (err) {
+      this.effectIndex = 0;
+    }
+  }
+
+  private currentEffect(): EffectInfo {
+    return AchievementEffects.info(this.effectIndex);
+  }
+
+  /** 换下一个效果并立即试播，方便逐个对比 */
+  private nextEffect(): void {
+    this.effectIndex = (this.effectIndex + 1) % AchievementEffects.count();
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    AchievementEngine.setEffectIndex(context, this.effectIndex);
+    this.previewEffect();
+  }
+
+  /** 在当前效果上重播一遍 */
+  private previewEffect(): void {
+    const ui: UIContext = this.getUIContext();
+    AchievementEffects.play(this.effectIndex, this.demoCell, ui);
+    setTimeout(() => {
+      this.demoCell.celebrating = false;
+      this.demoCell.resetAnimation();
+    }, 3300);
   }
 
   /** 首次进入本页时淡入 + 轻微上浮，让页签切换不再"生硬地换一整屏" */
@@ -321,6 +364,75 @@ export struct SettingsPage {
           this.switchRow('色盲友好模式（增加描边辅助）', this.colorBlindSafe, (value: boolean) => {
             this.colorBlindSafe = value;
           })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+        .borderRadius(Dimens.cardRadius)
+        .backgroundColor('#26070B14')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
+        .border({ width: 0.5, color: '#14FFFFFF' })
+
+        // 成就动画：10 种徽章点亮效果，可逐个切换并当场试播
+        Text('成就动画')
+          .fontSize(13)
+          .fontColor(Palette.textDim)
+          .width('100%')
+          .margin({ top: 22, bottom: 8 })
+
+        Column() {
+          Row() {
+            Column({ space: 4 }) {
+              Text(`效果 ${this.currentEffect().id + 1} / ${AchievementEffects.count()}　${this.currentEffect().name}`)
+                .fontSize(15)
+                .fontColor(Palette.text)
+                .fontWeight(FontWeight.Medium)
+              Text(this.currentEffect().desc)
+                .fontSize(11)
+                .fontColor(Palette.textDim)
+                .maxLines(2)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+
+            Text('换一个')
+              .fontSize(13)
+              .fontColor(Palette.gold)
+              .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+              .borderRadius(999)
+              .backgroundColor(Palette.surfaceSoft)
+              .onClick(() => {
+                this.nextEffect();
+              })
+          }
+          .width('100%')
+          .padding({ top: 14, bottom: 10 })
+
+          Row() {
+            // 试播用的徽章卡片：和统计页用的是同一个组件，所见即所得
+            BadgeCard({ cell: this.demoCell, index: 0, entered: true, cardWidth: 132 })
+            Column({ space: 8 }) {
+              Text('点「重播」可以反复看当前效果；')
+                .fontSize(11)
+                .fontColor(Palette.textDim)
+              Text('切换到统计页解锁新徽章时，用的就是这里选定的效果。')
+                .fontSize(11)
+                .fontColor(Palette.textDim)
+              Button('重播一次')
+                .height(34)
+                .borderRadius(17)
+                .fontSize(13)
+                .backgroundColor(Palette.gold)
+                .fontColor('#1A1405')
+                .onClick(() => {
+                  this.previewEffect();
+                })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            .margin({ left: 14, bottom: 10 })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
         }
         .width('100%')
         .padding({ left: 16, right: 16 })

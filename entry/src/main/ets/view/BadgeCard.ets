@@ -16,6 +16,8 @@ export struct BadgeCard {
   @Param index: number = 0;
   /** 页面入场标记（父组件控制） */
   @Param entered: boolean = false;
+  /** 卡片宽度：网格里是 31.5%（一行三个），试播时可以用别的值 */
+  @Param cardWidth: Length = '31.5%';
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
@@ -65,11 +67,24 @@ export struct BadgeCard {
               x: this.cell.celebrating ? this.cell.iconScale : 1,
               y: this.cell.celebrating ? this.cell.iconScale : 1
             })
-            .translate({ y: this.cell.celebrating ? this.cell.iconLift : 0 })
-            .rotate({ y: 1, angle: this.cell.celebrating ? this.cell.iconSpin : 0 })
+            .translate({
+              x: this.cell.celebrating ? this.cell.iconShake : 0,
+              y: this.cell.celebrating ? this.cell.iconLift : 0
+            })
+            // 三轴旋转合成：每种效果只用其中一个轴，所以按"哪个角度非零"选轴、
+            // 角度取三者之和即可（ArkUI 的 rotate 只能给一个轴向量 + 一个角度）
+            .rotate({
+              x: this.cell.celebrating && this.cell.iconSpinX !== 0 ? 1 : 0,
+              y: this.cell.celebrating && this.cell.iconSpin !== 0 ? 1 : 0,
+              z: this.cell.celebrating && this.cell.iconSpinZ !== 0 ? 1 : 0,
+              angle: this.cell.celebrating
+                ? this.cell.iconSpin + this.cell.iconSpinX + this.cell.iconSpinZ : 0
+            })
             // 未解锁的徽章用灰度滤镜压下去，比单纯降透明度更像"还没点亮"
             .grayscale(this.cell.unlocked ? 0 : 1)
-            .opacity(this.cell.unlocked ? 1 : 0.65)
+            .opacity(this.cell.celebrating
+              ? this.cell.iconOpacity
+              : (this.cell.unlocked ? 1 : 0.65))
         }
         .width(50)
         .height(50)
@@ -113,7 +128,7 @@ export struct BadgeCard {
       }
     }
     // 三列布局：每格占比 31.5%，配合 SpaceBetween 正好一行三个
-    .width('31.5%')
+    .width(this.cardWidth)
     .height(122)
     .margin({ bottom: 10 })
     .borderRadius(16)
@@ -131,6 +146,7 @@ export struct BadgeCard {
       x: this.cell.celebrating ? this.cell.cardScale : 1,
       y: this.cell.celebrating ? this.cell.cardScale : 1
     })
+    .rotate({ angle: this.cell.celebrating ? this.cell.cardRotate : 0 })
     // 入场：逐枚错开淡入上浮，一行三个像"依次落位"
     .opacity(this.entered ? 1 : 0)
     .translate({ y: this.entered ? 0 : 12 })

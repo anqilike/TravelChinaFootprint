@@ -1,4 +1,5 @@
 import { AchievementEngine, AchievementItem } from '../viewmodel/AchievementEngine';
+import { AchievementEffects } from '../viewmodel/AchievementEffects';
 import { FootprintListener, footprintStore } from '../viewmodel/FootprintStore';
 import { BadgeCell } from '../viewmodel/BadgeCell';
 import { BadgeCard } from './BadgeCard';
@@ -31,6 +32,8 @@ export struct StatsPage {
   @Local celebratingId: string = '';
   /** 顶部"成就解锁"横幅（可观察模型，滑入/流光靠它驱动） */
   @Local banner: CelebrationBanner = new CelebrationBanner();
+  /** 当前选中的徽章点亮动画编号（0~9，在「我的 → 成就动画」里切换） */
+  @Local effectIndex: number = 0;
   /**
    * 9 枚徽章的可观察模型：动画参数存在模型里、由 BadgeCard 这个独立子组件读取，
    * 这样字段一变子组件就刷新，不受 ForEach 复用策略影响。
@@ -77,7 +80,18 @@ export struct StatsPage {
     this.ensureCells();
     this.playEnter();
     this.detectNewlyUnlocked();
+    this.loadEffectIndex();
     footprintStore.subscribe(this.footprintListener);
+  }
+
+  /** 读取用户选中的徽章动画（在「我的」里切换，落盘保存） */
+  private async loadEffectIndex(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      this.effectIndex = await AchievementEngine.getEffectIndex(context);
+    } catch (err) {
+      this.effectIndex = 0;
+    }
   }
 
   /** 首次创建 9 个可观察徽章模型（只建一次，之后复用） */
@@ -200,20 +214,7 @@ export struct StatsPage {
     if (cell === undefined) {
       return;
     }
-    // 初值：全部回到常态，避免上一次庆祝的残留
-    cell.celebrating = true;
-    cell.cardScale = 1;
-    cell.iconLift = 0;
-    cell.iconScale = 1;
-    cell.iconSpin = 0;
-    cell.glowScale = 0.6;
-    cell.glowOpacity = 0;
-    cell.ring1Scale = 0.5;
-    cell.ring1Opacity = 0;
-    cell.ring2Scale = 0.5;
-    cell.ring2Opacity = 0;
-    cell.shineX = -140;
-    // 顶部横幅初值
+    // 顶部横幅（10 种效果共用，它是"成就解锁"的仪式感来源）
     this.banner.icon = cell.icon;
     this.banner.title = '成就解锁';
     this.banner.subtitle = `${cell.name} · ${cell.desc}`;
@@ -221,14 +222,12 @@ export struct StatsPage {
     this.banner.opacity = 0;
     this.banner.scale = 0.92;
     this.banner.shimmerX = -220;
-    hilog.info(DOMAIN, TAG, 'celebration start: %{public}s', id);
+    hilog.info(DOMAIN, TAG, 'celebration start: %{public}s effect=%{public}d', id, this.effectIndex);
 
     setTimeout(() => {
       const ui: UIContext = this.getUIContext();
-      // ① 卡片弹起一下
-      ui.animateTo({ duration: 260, curve: curves.springMotion(0.4, 0.7) }, () => {
-        cell.cardScale = 1.06;
-      });
+      // 徽章动画：完全交给选中的效果（只改 BadgeCell 的 @Trace 字段）
+      const effectDuration: number = AchievementEffects.play(this.effectIndex, cell, ui);
       // 顶部横幅滑入 + 流光扫过
       ui.animateTo({ duration: 520, delay: 120, curve: curves.springMotion(0.45, 0.72) }, () => {
         this.banner.offsetY = 0;
@@ -238,48 +237,12 @@ export struct StatsPage {
       ui.animateTo({ duration: 900, delay: 560, curve: Curve.EaseInOut }, () => {
         this.banner.shimmerX = 360;
       });
-      // ② 勋章升起 + 放大 + 绕 Y 轴转两圈
-      ui.animateTo({ duration: 460, delay: 200, curve: curves.springMotion(0.45, 0.68) }, () => {
-        cell.iconLift = -12;
-        cell.iconScale = 1.8;
-      });
-      ui.animateTo({ duration: 900, delay: 200, curve: Curve.Linear }, () => {
-        cell.iconSpin = 720;
-      });
-      // ③ 光晕爆发 + 两圈光环依次扩散
-      ui.animateTo({ duration: 700, delay: 260, curve: Curve.EaseOut }, () => {
-        cell.glowOpacity = 0.95;
-        cell.glowScale = 1.9;
-      });
-      ui.animateTo({ duration: 900, delay: 280, curve: Curve.EaseOut }, () => {
-        cell.ring1Scale = 2.4;
-        cell.ring1Opacity = 0.9;
-      });
-      ui.animateTo({ duration: 900, delay: 460, curve: Curve.EaseOut }, () => {
-        cell.ring2Scale = 2.8;
-        cell.ring2Opacity = 0.7;
-      });
-      ui.animateTo({ duration: 520, delay: 880, curve: Curve.EaseIn }, () => {
-        cell.ring1Opacity = 0;
-        cell.ring2Opacity = 0;
-      });
-      // ④ 带弹性落回原位
-      ui.animateTo({ duration: 500, delay: 1040, curve: curves.springMotion(0.4, 0.58) }, () => {
-        cell.iconLift = 0;
-        cell.iconScale = 1.0;
-      });
-      ui.animateTo({ duration: 380, delay: 1040, curve: curves.springMotion(0.4, 0.6) }, () => {
-        cell.cardScale = 1.0;
-      });
-      // ⑤ 扫光划过卡片 + 光晕收尾
-      ui.animateTo({ duration: 700, delay: 1120, curve: Curve.EaseOut }, () => {
-        cell.shineX = 150;
-      });
-      ui.animateTo({ duration: 600, delay: 1280, curve: Curve.EaseInOut }, () => {
-        cell.glowOpacity = 0;
-      });
-      // 横幅收回
-      ui.animateTo({ duration: 420, delay: 2560, curve: Curve.EaseIn }, () => {
+      // 横幅收回（等徽章动画放完）
+      ui.animateTo({
+        duration: 420,
+        delay: Math.max(1700, effectDuration + 560),
+        curve: Curve.EaseIn
+      }, () => {
         this.banner.offsetY = -160;
         this.banner.opacity = 0;
       });
@@ -288,21 +251,14 @@ export struct StatsPage {
     // 收尾：卡片与横幅都回到常态
     setTimeout(() => {
       this.finishCelebration(id);
-    }, 3100);
+    }, 3300);
   }
 
   private finishCelebration(id: string): void {
     const cell: BadgeCell | undefined = this.cellById.get(id);
     if (cell !== undefined) {
       cell.celebrating = false;
-      cell.cardScale = 1;
-      cell.iconLift = 0;
-      cell.iconScale = 1;
-      cell.iconSpin = 0;
-      cell.glowOpacity = 0;
-      cell.ring1Opacity = 0;
-      cell.ring2Opacity = 0;
-      cell.shineX = -140;
+      cell.resetAnimation();
     }
     this.banner.opacity = 0;
     this.banner.offsetY = -160;

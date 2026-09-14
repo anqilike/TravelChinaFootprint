@@ -29,12 +29,21 @@ export class BadgeCell {
   @Trace celebrating: boolean = false;
   /** ① 卡片聚焦：轻微弹起 + 底色高亮（0=常态，1=高亮） */
   @Trace cardScale: number = 1;
-  @Trace cardHighlight: number = 0;
+  /** 卡片整体绕 Z 轴旋转（摆动类效果用） */
+  @Trace cardRotate: number = 0;
 
-  /** ② 勋章本体：升起高度 / 缩放 / 绕 Y 轴旋转角度 */
+  /** ② 勋章本体：升起高度 / 缩放 / 三轴旋转 / 水平抖动 / 透明度 */
   @Trace iconLift: number = 0;
   @Trace iconScale: number = 1;
+  /** 绕 Y 轴旋转（左右翻面） */
   @Trace iconSpin: number = 0;
+  /** 绕 X 轴旋转（上下翻，像抛硬币） */
+  @Trace iconSpinX: number = 0;
+  /** 绕 Z 轴旋转（平面内转圈） */
+  @Trace iconSpinZ: number = 0;
+  /** 水平抖动偏移 */
+  @Trace iconShake: number = 0;
+  @Trace iconOpacity: number = 1;
 
   /** ③ 光晕与两圈扩散光环 */
   @Trace glowScale: number = 0.6;
@@ -46,6 +55,26 @@ export class BadgeCell {
 
   /** ⑤ 卡片扫光的水平位移 */
   @Trace shineX: number = -140;
+
+  /** 复位到常态（每个效果播放前都会先调用一次） */
+  resetAnimation(): void {
+    this.cardScale = 1;
+    this.cardRotate = 0;
+    this.iconLift = 0;
+    this.iconScale = 1;
+    this.iconSpin = 0;
+    this.iconSpinX = 0;
+    this.iconSpinZ = 0;
+    this.iconShake = 0;
+    this.iconOpacity = 1;
+    this.glowScale = 0.6;
+    this.glowOpacity = 0;
+    this.ring1Scale = 0.5;
+    this.ring1Opacity = 0;
+    this.ring2Scale = 0.5;
+    this.ring2Opacity = 0;
+    this.shineX = -140;
+  }
 
   constructor(id: string, name: string, desc: string, icon: string) {
     this.id = id;

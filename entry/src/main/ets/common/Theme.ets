@@ -118,6 +118,18 @@ export class MapDefaults {
   /** 判定为点击的最长按压时间（毫秒），超过按长按处理 */
   static readonly tapMaxMs: number = 500;
   /**
+   * 已点亮城市点位的闪烁参数。
+   * 每座城市按行政区划代码派生出一个**不同的周期**（0.9~1.9 秒）和**不同的相位**，
+   * 于是 370 个点各闪各的、永不同步——一眼就能看出哪些地方去过。
+   */
+  static readonly blinkMinPeriodMs: number = 900;
+  static readonly blinkPeriodRangeMs: number = 1000;
+  /** 闪烁时的透明度区间：暗到亮 */
+  static readonly blinkDimAlpha: number = 0.4;
+  static readonly blinkBrightAlpha: number = 1.0;
+  /** 刷新间隔（毫秒）：80ms ≈ 12.5fps，兼顾顺滑与耗电 */
+  static readonly blinkIntervalMs: number = 80;
+  /**
    * 分级标注阈值（按缩放级别三段式，互不重叠）：
    *  zoom < capitalZoom（4.5）      → 只标省名（+ 底图自带的国家名）
    *  capitalZoom ≤ zoom < nameZoom  → 只标 34 个省会 / 首府（此时不标省名）

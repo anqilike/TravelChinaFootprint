@@ -157,6 +157,10 @@ export struct MapPage {
   private labelRetry: number = 0;
   /** 上一次"跟随相机"刷新标注的时间戳（毫秒），用于节流 */
   private lastCameraTick: number = 0;
+  /** 点位闪烁定时器句柄 */
+  private blinkTimer: number = -1;
+  /** 每座城市的闪烁周期与相位缓存（由行政区划代码派生，稳定不变） */
+  private blinkParams: Map<string, number[]> = new Map<string, number[]>();
   /** 自己识别点按时，记录按下位置与时刻 */
   private touchDownX: number = 0;
   private touchDownY: number = 0;
@@ -167,6 +171,20 @@ export struct MapPage {
   private lastPickAt: number = 0;
   /** TODO 临时诊断：被挤掉的省名（地图 SDK 日志刷爆配额，hilog 会被丢弃，只能画在屏幕上） */
   @Local debugDropped: string = '';
+  /**
+   * 由父组件传入：当前是否停留在本页。
+   * 点位闪烁只在页面可见时跑，切走就停（省电），切回来接着闪。
+   */
+  @Param active: boolean = true;
+
+  @Monitor('active')
+  onActiveChanged(): void {
+    if (this.active) {
+      this.startBlinking();
+    } else {
+      this.stopBlinking();
+    }
+  }
   /**
    * 悬浮控件入场标记：地图就绪后置 true，
    * 让顶部胶囊 / 图例淡入并轻微下滑，而不是"啪"地一下出现。
@@ -209,10 +227,75 @@ export struct MapPage {
       this.setupMap(controller);
     };
     footprintStore.subscribe(this.listener);
+    this.startBlinking();
   }
 
   aboutToDisappear(): void {
     footprintStore.unsubscribe(this.listener);
+    this.stopBlinking();
+  }
+
+  /**
+   * 启动"已点亮点位闪烁"。
+   *
+   * 做法：每 80ms 按 sine 曲线给每个已点亮 marker 下发一次透明度，
+   * 周期和相位由城市代码派生 —— 每座城市都不一样，所以永远不会同步闪，
+   * 远远一看就是一片"呼吸着的金点"，去过哪里一目了然。
+   */
+  private startBlinking(): void {
+    if (this.blinkTimer !== -1) {
+      return;
+    }
+    this.blinkTimer = setInterval(() => {
+      this.tickBlink();
+    }, MapDefaults.blinkIntervalMs);
+  }
+
+  private stopBlinking(): void {
+    if (this.blinkTimer === -1) {
+      return;
+    }
+    clearInterval(this.blinkTimer);
+    this.blinkTimer = -1;
+  }
+
+  private tickBlink(): void {
+    if (this.markers.size === 0) {
+      return;
+    }
+    const now: number = Date.now();
+    const span: number = MapDefaults.blinkBrightAlpha - MapDefaults.blinkDimAlpha;
+    this.markers.forEach((marker: map.Marker, code: string) => {
+      if (!footprintStore.isVisited(code)) {
+        return;
+      }
+      const params: number[] = this.blinkParam(code);
+      // sine 相位：0 → 暗，0.5 → 最亮
+      const k: number = 0.5 + 0.5 * Math.sin(2 * Math.PI * (now / params[0] + params[1]));
+      const alpha: number = MapDefaults.blinkDimAlpha + span * k;
+      this.markerAlpha.set(code, alpha);
+      marker.setAlpha(alpha);
+    });
+  }
+
+  /** 由城市代码派生出 [周期ms, 相位0~1]，同一座城市每次都一样 */
+  private blinkParam(code: string): number[] {
+    const cached: number[] | undefined = this.blinkParams.get(code);
+    if (cached !== undefined) {
+      return cached;
+    }
+    let h1: number = 17;
+    let h2: number = 31;
+    for (let i = 0; i < code.length; i++) {
+      const c: number = code.charCodeAt(i);
+      h1 = (h1 * 31 + c) % 100000;
+      h2 = (h2 * 37 + c) % 100000;
+    }
+    const period: number = MapDefaults.blinkMinPeriodMs + (h1 % MapDefaults.blinkPeriodRangeMs);
+    const phase: number = (h2 % 1000) / 1000;
+    const params: number[] = [period, phase];
+    this.blinkParams.set(code, params);
+    return params;
   }
 
   /**

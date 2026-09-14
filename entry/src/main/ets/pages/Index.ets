@@ -181,7 +181,8 @@ struct Index {
           // 这里不再自己叠"底部渐变遮罩"——自绘的那层会画在页签栏之上，把材质糊住。
           Tabs({ barPosition: BarPosition.End, index: this.currentIndex, controller: this.tabsController }) {
             TabContent() {
-              MapPage()
+              // 传入"当前是否停留在本页"：点位闪烁只在可见时跑
+              MapPage({ active: this.currentIndex === 0 })
             }
             .tabBar(this.navTab($r('app.media.ic_nav_map'), '地图'))
 

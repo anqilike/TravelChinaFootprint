@@ -8,6 +8,7 @@ const DOMAIN: number = 0x0000;
 const TAG: string = 'AchievementEngine';
 const SEEN_STORE: string = 'achievement_store';
 const SEEN_KEY: string = 'seen_ids';
+const EFFECT_KEY: string = 'effect_index';
 
 /** 成就徽章 */
 export interface AchievementItem {
@@ -27,6 +28,43 @@ const MUNICIPALITY_CODES: string[] = ['110000', '120000', '310000', '500000'];
 /** 成就计算：全部本地计算，不依赖服务端 */
 export class AchievementEngine {
   private static store: preferences.Preferences | undefined = undefined;
+
+  /** 取（必要时创建）偏好存储 */
+  private static async ensureStore(context: common.UIAbilityContext): Promise<preferences.Preferences | undefined> {
+    if (AchievementEngine.store !== undefined) {
+      return AchievementEngine.store;
+    }
+    const options: preferences.Options = { name: SEEN_STORE };
+    AchievementEngine.store = await preferences.getPreferences(context, options);
+    return AchievementEngine.store;
+  }
+
+  /** 读取当前选中的徽章点亮动画编号（0~9） */
+  static async getEffectIndex(context: common.UIAbilityContext): Promise<number> {
+    try {
+      const store: preferences.Preferences | undefined = await AchievementEngine.ensureStore(context);
+      if (store === undefined) {
+        return 0;
+      }
+      return store.getSync(EFFECT_KEY, 0) as number;
+    } catch (err) {
+      return 0;
+    }
+  }
+
+  /** 记住选中的动画编号，下次进应用还是它 */
+  static async setEffectIndex(context: common.UIAbilityContext, index: number): Promise<void> {
+    try {
+      const store: preferences.Preferences | undefined = await AchievementEngine.ensureStore(context);
+      if (store === undefined) {
+        return;
+      }
+      await store.put(EFFECT_KEY, index);
+      await store.flush();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'setEffectIndex failed: %{public}s', JSON.stringify(err));
+    }
+  }
 
   /**
    * 取出"本次新解锁、但用户还没看到过"的徽章 id，用于播放点亮动画。

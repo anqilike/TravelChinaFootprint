@@ -4,6 +4,8 @@ import { BadgeCell } from '../viewmodel/BadgeCell';
 import { BadgeCard } from './BadgeCard';
 import { CelebrationParticle } from '../viewmodel/CelebrationParticle';
 import { CelebrationParticleView } from './CelebrationParticleView';
+import { HeroBadge } from '../viewmodel/HeroBadge';
+import { HeroBadgeView } from './HeroBadgeView';
 import { CityRepository } from '../repository/CityRepository';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
@@ -31,14 +33,8 @@ export struct StatsPage {
   @Local celebratingId: string = '';
   /** 庆祝浮层：粒子（18 颗，散开 → 汇聚 → 星芒） */
   @Local particles: CelebrationParticle[] = [];
-  /** 屏幕中心那枚大勋章的状态 */
-  @Local heroIcon: string = '';
-  @Local heroX: number = 0;
-  @Local heroY: number = 0;
-  @Local heroScale: number = 0.2;
-  @Local heroOpacity: number = 0;
-  @Local heroGlowScale: number = 0.4;
-  @Local heroGlowOpacity: number = 0;
+  /** 屏幕中心那枚"聚合出来的大勋章"（可观察模型，动画由它自己驱动） */
+  @Local hero: HeroBadge = new HeroBadge();
   /** 根容器尺寸，用来算"屏幕中心" */
   private rootWidth: number = 0;
   private rootHeight: number = 0;
@@ -103,9 +99,10 @@ export struct StatsPage {
       return;
     }
     const list: CelebrationParticle[] = [];
-    for (let i = 0; i < 18; i++) {
-      const size: number = i % 5 === 0 ? 10 : (i % 3 === 0 ? 7 : 5);
-      const color: string = i % 4 === 0 ? '#FFF6D5' : '#F5C542';
+    // 48 颗：徽章"分解"得足够碎，聚拢时才有成团的体积感
+    for (let i = 0; i < 48; i++) {
+      const size: number = i % 7 === 0 ? 9 : (i % 3 === 0 ? 6 : 4);
+      const color: string = i % 5 === 0 ? '#FFF6D5' : (i % 3 === 0 ? '#FFD97D' : '#F5C542');
       list.push(new CelebrationParticle(size, color));
     }
     this.particles = list;
@@ -205,7 +202,7 @@ export struct StatsPage {
     this.playUnlockAnimation(id);
     setTimeout(() => {
       this.runCelebration();
-    }, 2750);
+    }, 3150);
   }
 
   /** 复位某一枚的庆祝状态 */
@@ -244,13 +241,13 @@ export struct StatsPage {
 
     cell.celebrating = true;
     cell.shineX = -140;
-    this.heroIcon = cell.icon;
-    this.heroX = originX;
-    this.heroY = originY;
-    this.heroScale = 0.2;
-    this.heroOpacity = 0;
-    this.heroGlowScale = 0.4;
-    this.heroGlowOpacity = 0;
+    this.hero.icon = cell.icon;
+    this.hero.x = originX;
+    this.hero.y = originY;
+    this.hero.size = 30;
+    this.hero.opacity = 0;
+    this.hero.glowScale = 0.4;
+    this.hero.glowOpacity = 0;
     for (const p of this.particles) {
       p.x = originX;
       p.y = originY;
@@ -265,61 +262,61 @@ export struct StatsPage {
       for (let i = 0; i < count; i++) {
         const p: CelebrationParticle = this.particles[i];
         const angle: number = (i / count) * Math.PI * 2 + (i % 3) * 0.35;
-        const scatterDist: number = 64 + (i % 6) * 24;
+        const scatterDist: number = 56 + (i % 8) * 20;
         // ① 散开
-        ui.animateTo({ duration: 380, delay: i * 10, curve: Curve.EaseOut }, () => {
+        ui.animateTo({ duration: 380, delay: i * 8, curve: Curve.EaseOut }, () => {
           p.x = originX + Math.cos(angle) * scatterDist;
           p.y = originY + Math.sin(angle) * scatterDist;
           p.opacity = 1;
           p.scale = 1.1;
         });
         // ② 汇聚到屏幕中心
-        ui.animateTo({ duration: 520, delay: 420 + i * 10, curve: Curve.EaseInOut }, () => {
-          p.x = centerX + ((i % 4) - 1.5) * 7;
-          p.y = centerY + ((i % 3) - 1) * 7;
+        ui.animateTo({ duration: 520, delay: 400 + i * 8, curve: Curve.EaseInOut }, () => {
+          p.x = centerX + ((i % 5) - 2) * 6;
+          p.y = centerY + ((i % 4) - 1.5) * 6;
           p.opacity = 0.3;
           p.scale = 0.7;
         });
         // ④ 星芒：再次向外飞散并消散
-        ui.animateTo({ duration: 460, delay: 1500 + i * 16, curve: Curve.EaseOut }, () => {
-          p.x = centerX + Math.cos(angle) * (110 + (i % 5) * 22);
-          p.y = centerY + Math.sin(angle) * (110 + (i % 5) * 22);
+        ui.animateTo({ duration: 460, delay: 1620 + i * 10, curve: Curve.EaseOut }, () => {
+          p.x = centerX + Math.cos(angle) * (120 + (i % 6) * 24);
+          p.y = centerY + Math.sin(angle) * (120 + (i % 6) * 24);
           p.opacity = 0;
           p.scale = 0.4;
         });
       }
-      // ③ 大勋章在中心点亮
-      ui.animateTo({ duration: 420, delay: 900, curve: curves.springMotion(0.45, 0.62) }, () => {
-        this.heroOpacity = 1;
-        this.heroScale = 1.0;
+      // ③ 大勋章在中心点亮：从小放大到 150vp
+      ui.animateTo({ duration: 460, delay: 960, curve: curves.springMotion(0.45, 0.62) }, () => {
+        this.hero.opacity = 1;
+        this.hero.size = 150;
       });
       // 光晕爆发
-      ui.animateTo({ duration: 700, delay: 900, curve: Curve.EaseOut }, () => {
-        this.heroGlowOpacity = 0.95;
-        this.heroGlowScale = 1.5;
+      ui.animateTo({ duration: 700, delay: 960, curve: Curve.EaseOut }, () => {
+        this.hero.glowOpacity = 0.95;
+        this.hero.glowScale = 1.5;
       });
       // 闪闪发光：光晕呼吸两次
-      ui.animateTo({ duration: 300, delay: 1600, curve: Curve.EaseInOut }, () => {
-        this.heroGlowOpacity = 0.3;
-        this.heroGlowScale = 1.15;
+      ui.animateTo({ duration: 300, delay: 1680, curve: Curve.EaseInOut }, () => {
+        this.hero.glowOpacity = 0.3;
+        this.hero.glowScale = 1.15;
       });
-      ui.animateTo({ duration: 300, delay: 1900, curve: Curve.EaseInOut }, () => {
-        this.heroGlowOpacity = 0.9;
-        this.heroGlowScale = 1.4;
+      ui.animateTo({ duration: 300, delay: 1980, curve: Curve.EaseInOut }, () => {
+        this.hero.glowOpacity = 0.9;
+        this.hero.glowScale = 1.4;
       });
-      ui.animateTo({ duration: 300, delay: 2220, curve: Curve.EaseInOut }, () => {
-        this.heroGlowOpacity = 0;
-        this.heroGlowScale = 1.0;
+      ui.animateTo({ duration: 320, delay: 2300, curve: Curve.EaseInOut }, () => {
+        this.hero.glowOpacity = 0;
+        this.hero.glowScale = 1.0;
       });
-      // ⑤ 飞回原来的卡片位置，并同步缩小到与卡片里那枚一样大
-      ui.animateTo({ duration: 520, delay: 1980, curve: curves.springMotion(0.42, 0.82) }, () => {
-        this.heroX = originX;
-        this.heroY = originY;
-        this.heroScale = 0.34;
-        this.heroOpacity = 0.95;
+      // ⑤ 逐渐缩小并飞回原来的卡片位置（终态尺寸 = 卡片里那枚徽章的大小）
+      ui.animateTo({ duration: 560, delay: 2380, curve: curves.springMotion(0.42, 0.82) }, () => {
+        this.hero.x = originX;
+        this.hero.y = originY;
+        this.hero.size = 50;
+        this.hero.opacity = 0.95;
       });
       // 卡片扫光
-      ui.animateTo({ duration: 700, delay: 1980, curve: Curve.EaseOut }, () => {
+      ui.animateTo({ duration: 700, delay: 2380, curve: Curve.EaseOut }, () => {
         cell.shineX = 150;
       });
     }, 40);
@@ -327,7 +324,7 @@ export struct StatsPage {
     // 收尾：隐藏浮层、恢复卡片里的徽章
     setTimeout(() => {
       this.finishCelebration(id);
-    }, 2600);
+    }, 3000);
   }
 
   private finishCelebration(id: string): void {
@@ -336,7 +333,7 @@ export struct StatsPage {
       cell.celebrating = false;
       cell.shineX = -140;
     }
-    this.heroOpacity = 0;
+    this.hero.opacity = 0;
     for (const p of this.particles) {
       p.opacity = 0;
     }
@@ -525,7 +522,7 @@ export struct StatsPage {
 
   /**
    * 庆祝浮层：整屏铺开、不拦截触摸。
-   * 18 颗粒子 + 中心的大勋章，全部由 @Trace 状态驱动。
+   * 48 颗粒子 + 中心的大勋章，全部由 @ObservedV2 的 @Trace 状态驱动。
    */
   @Builder
   celebrationStage() {
@@ -534,38 +531,8 @@ export struct StatsPage {
         CelebrationParticleView({ dot: p })
       }, (p: CelebrationParticle, index: number) => `particle_${index}`)
 
-      Stack({ alignContent: Alignment.Center }) {
-        // 金色光晕（会呼吸）
-        Column()
-          .width(150)
-          .height(150)
-          .borderRadius(75)
-          .radialGradient({
-            center: ['50%', '50%'],
-            radius: '50%',
-            colors: [['#80F5C542', 0.0], ['#40F5C542', 0.45], ['#00F5C542', 1.0]]
-          })
-          .opacity(this.heroGlowOpacity)
-          .scale({ x: this.heroGlowScale, y: this.heroGlowScale })
-
-        // 外圈光环
-        Column()
-          .width(104)
-          .height(104)
-          .borderRadius(52)
-          .border({ width: 2, color: '#CCF5C542' })
-          .opacity(this.heroGlowOpacity)
-          .scale({ x: this.heroGlowScale, y: this.heroGlowScale })
-
-        // 大勋章本体
-        Text(this.heroIcon)
-          .fontSize(76)
-      }
-      .width(150)
-      .height(150)
-      .position({ x: this.heroX - 75, y: this.heroY - 75 })
-      .scale({ x: this.heroScale, y: this.heroScale })
-      .opacity(this.heroOpacity)
+      // 中心大勋章：由 HeroBadge 模型驱动，出现时放大、归位时缩回卡片大小
+      HeroBadgeView({ hero: this.hero })
     }
     .width('100%')
     .height('100%')

@@ -27,7 +27,24 @@ export class BadgeCell {
    * 大勋章飞回原位后才恢复显示。
    */
   @Trace celebrating: boolean = false;
-  /** 卡片扫光的水平位移 */
+  /** ① 卡片聚焦：轻微弹起 + 底色高亮（0=常态，1=高亮） */
+  @Trace cardScale: number = 1;
+  @Trace cardHighlight: number = 0;
+
+  /** ② 勋章本体：升起高度 / 缩放 / 绕 Y 轴旋转角度 */
+  @Trace iconLift: number = 0;
+  @Trace iconScale: number = 1;
+  @Trace iconSpin: number = 0;
+
+  /** ③ 光晕与两圈扩散光环 */
+  @Trace glowScale: number = 0.6;
+  @Trace glowOpacity: number = 0;
+  @Trace ring1Scale: number = 0.5;
+  @Trace ring1Opacity: number = 0;
+  @Trace ring2Scale: number = 0.5;
+  @Trace ring2Opacity: number = 0;
+
+  /** ⑤ 卡片扫光的水平位移 */
   @Trace shineX: number = -140;
 
   constructor(id: string, name: string, desc: string, icon: string) {

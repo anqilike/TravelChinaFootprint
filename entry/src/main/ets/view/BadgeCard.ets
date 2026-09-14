@@ -16,19 +16,13 @@ export struct BadgeCard {
   @Param index: number = 0;
   /** 页面入场标记（父组件控制） */
   @Param entered: boolean = false;
-  /**
-   * 上报图标在窗口坐标系里的位置与尺寸。
-   * 父页面要用它算出"粒子从哪散开、大勋章飞回哪里"。
-   */
-  @Param onIconArea: (id: string, x: number, y: number, w: number, h: number) => void = () => {
-  };
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
       Column() {
         // 图标区：光晕 + 扩散光环 + 图标
         Stack({ alignContent: Alignment.Center }) {
-          // 常驻金色光晕（已解锁才亮）
+          // 常驻金色光晕（已解锁才亮）；庆祝时随爆发动画放大淡出
           Column()
             .width(50)
             .height(50)
@@ -38,22 +32,47 @@ export struct BadgeCard {
               radius: '50%',
               colors: [['#59F5C542', 0.0], ['#2EF5C542', 0.55], ['#00F5C542', 1.0]]
             })
-            .opacity(this.cell.unlocked && !this.cell.celebrating ? 0.85 : 0)
+            .opacity(this.cell.celebrating
+              ? this.cell.glowOpacity
+              : (this.cell.unlocked ? 0.85 : 0))
+            .scale({
+              x: this.cell.celebrating ? this.cell.glowScale : 1,
+              y: this.cell.celebrating ? this.cell.glowScale : 1
+            })
 
-          // 徽章本体：庆祝期间隐藏（它已经散成粒子飞到屏幕中心了）
+          // 两圈依次向外扩散的金色光环
+          if (this.cell.celebrating) {
+            Column()
+              .width(46)
+              .height(46)
+              .borderRadius(23)
+              .border({ width: 2, color: '#E6F5C542' })
+              .scale({ x: this.cell.ring1Scale, y: this.cell.ring1Scale })
+              .opacity(this.cell.ring1Opacity)
+            Column()
+              .width(46)
+              .height(46)
+              .borderRadius(23)
+              .border({ width: 1.5, color: '#B3FFD97D' })
+              .scale({ x: this.cell.ring2Scale, y: this.cell.ring2Scale })
+              .opacity(this.cell.ring2Opacity)
+          }
+
+          // 徽章本体：升起 + 放大 + 绕 Y 轴转两圈
           Text(this.cell.icon)
             .fontSize(26)
+            .scale({
+              x: this.cell.celebrating ? this.cell.iconScale : 1,
+              y: this.cell.celebrating ? this.cell.iconScale : 1
+            })
+            .translate({ y: this.cell.celebrating ? this.cell.iconLift : 0 })
+            .rotate({ y: 1, angle: this.cell.celebrating ? this.cell.iconSpin : 0 })
             // 未解锁的徽章用灰度滤镜压下去，比单纯降透明度更像"还没点亮"
             .grayscale(this.cell.unlocked ? 0 : 1)
-            .opacity(this.cell.celebrating ? 0 : (this.cell.unlocked ? 1 : 0.65))
+            .opacity(this.cell.unlocked ? 1 : 0.65)
         }
         .width(50)
         .height(50)
-        .onAreaChange((oldArea: Area, newArea: Area) => {
-          this.onIconArea(this.cell.id,
-            Number(newArea.globalPosition.x), Number(newArea.globalPosition.y),
-            Number(newArea.width), Number(newArea.height));
-        })
 
         Text(this.cell.name)
           .fontSize(13)
@@ -102,11 +121,16 @@ export struct BadgeCard {
     .backgroundColor(this.cell.unlocked ? '#33F5C542' : '#1A0F1626')
     .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
     .border({
-      width: this.cell.unlocked ? 0.8 : 0.5,
+      width: this.cell.celebrating ? 1.6 : (this.cell.unlocked ? 0.8 : 0.5),
       color: this.cell.unlocked ? '#66F5C542' : '#14FFFFFF'
     })
     // 徽章浮起时会越过卡片上沿，抬高层级避免被上一行的卡片压住
     .zIndex(this.cell.celebrating ? 3 : 1)
+    // 庆祝时卡片自身弹起一下
+    .scale({
+      x: this.cell.celebrating ? this.cell.cardScale : 1,
+      y: this.cell.celebrating ? this.cell.cardScale : 1
+    })
     // 入场：逐枚错开淡入上浮，一行三个像"依次落位"
     .opacity(this.entered ? 1 : 0)
     .translate({ y: this.entered ? 0 : 12 })

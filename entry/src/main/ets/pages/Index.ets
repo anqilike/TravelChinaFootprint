@@ -355,12 +355,13 @@ struct Index {
     return new BottomTabBarStyle(icon, label)
       .labelStyle({
         selectedColor: Palette.goldLight,
-        unselectedColor: Palette.textDim,
+        // 玻璃材质上的文字必须是纯白，灰色在浅色底图透上来时会发闷、看不清
+        unselectedColor: Palette.text,
         font: { size: 10, weight: FontWeight.Medium }
       })
       .iconStyle({
         selectedColor: Palette.gold,
-        unselectedColor: Palette.textDim
+        unselectedColor: Palette.text
       });
   }
 }

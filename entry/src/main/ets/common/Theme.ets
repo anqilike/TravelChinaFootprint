@@ -13,7 +13,8 @@ export class Palette {
   static readonly surface: string = '#111A29';
   static readonly surfaceSoft: string = '#0C1320';
   static readonly line: string = '#1E2A40';
-  static readonly text: string = '#EAF0FA';
+  /** 主文字：纯白。沉浸光感材质上的文字必须是纯白才够醒目（灰色在玻璃上会发闷） */
+  static readonly text: string = '#FFFFFF';
   static readonly textDim: string = '#8A99B5';
   static readonly gold: string = '#F5C542';
   static readonly goldLight: string = '#FFD97D';
@@ -102,6 +103,15 @@ export class MapDefaults {
    * 44vp ≈ 一根手指的落点半径，也是系统对最小可点区域的经验值。
    */
   static readonly tapRadiusVp: number = 44;
+  /**
+   * 自己识别"点按"的位移容差（vp）。
+   * 手指点一下通常会抖动几像素，地图 SDK 会把它当成拖拽从而**不回调 mapClick**——
+   * 这就是"一个城市要点好几次"的另一半原因。我们在 MapComponent 上自己收 onTouch，
+   * 位移小于这个值、且时长够短，就判定为一次点击。
+   */
+  static readonly tapSlopVp: number = 16;
+  /** 判定为点击的最长按压时间（毫秒），超过按长按处理 */
+  static readonly tapMaxMs: number = 500;
   /**
    * 分级标注阈值（按缩放级别三段式，互不重叠）：
    *  zoom < capitalZoom（4.5）      → 只标省名（+ 底图自带的国家名）

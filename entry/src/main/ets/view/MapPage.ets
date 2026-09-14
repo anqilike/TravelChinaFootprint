@@ -156,6 +156,14 @@ export struct MapPage {
   private labelRetry: number = 0;
   /** 上一次"跟随相机"刷新标注的时间戳（毫秒），用于节流 */
   private lastCameraTick: number = 0;
+  /** 自己识别点按时，记录按下位置与时刻 */
+  private touchDownX: number = 0;
+  private touchDownY: number = 0;
+  private touchDownAt: number = 0;
+  /** 本次触摸是否已经移动超过容差（移动过就不算点击） */
+  private touchMoved: boolean = false;
+  /** 上一次处理点按的时刻：地图自己的 mapClick 与我们的 onTouch 会同时命中同一次点按，用它去重 */
+  private lastPickAt: number = 0;
   /** TODO 临时诊断：被挤掉的省名（地图 SDK 日志刷爆配额，hilog 会被丢弃，只能画在屏幕上） */
   @Local debugDropped: string = '';
 
@@ -687,36 +695,87 @@ export struct MapPage {
   }
 
   /**
-   * 点按地图：找"手指落点附近"最近的城市，直接给出"点亮 / 查看"入口。
-   *
-   * 判定标准从**公里**改成了**屏幕距离**（44vp）：
-   *  · 公里阈值的老问题——同一段屏幕距离，在不同缩放级别对应的公里数差几十倍。
-   *    全国视野下 60 公里只有约 12 物理像素，而点位本身也只有约 12 像素宽，
-   *    等于要求用户把手指尖精确压在圆点上，所以要点好几次才中一次。
-   *  · 屏幕距离则是"所见即所得"：圆点周围一个指尖的范围内都能命中，
-   *    放大之后命中范围自动收窄，不会把隔壁城市抢过来。
-   *
-   * 做法：把落点和所有城市都投影到屏幕坐标系，取半径内最近的一个。
-   * 成本与相机变化时的标注刷新同量级（同一次会话里已经跑了成千上万遍），
-   * 点击这种低频操作完全可以承担。
+   * 地图 SDK 的点击回调。只做一件事：把经纬度换算成屏幕坐标，交给统一的命中逻辑。
    */
   private handleMapClick(latLng: mapCommon.LatLng): void {
     const controller: map.MapComponentController | undefined = this.controller;
     if (controller === undefined) {
       return;
     }
-    const projection: map.Projection = controller.getProjection();
-    const tapPoint: mapCommon.MapPoint = projection.toScreenLocation(latLng);
-    const tapX: number = px2vp(tapPoint.positionX);
-    const tapY: number = px2vp(tapPoint.positionY);
+    const point: mapCommon.MapPoint = controller.getProjection().toScreenLocation(latLng);
+    hilog.info(DOMAIN, TAG, 'tap path=sdkClick');
+    this.pickCityAtScreen(px2vp(point.positionX), px2vp(point.positionY));
+  }
 
+  /**
+   * 自己识别点按。
+   *
+   * 为什么需要它：手指点一下通常会有几像素抖动，地图 SDK 会把这种抖动当成拖拽，
+   * 于是 `mapClick` 根本不回调；点在地图点位上时也可能被点位消费掉。
+   * 结果就是"一个城市要点好几次才弹窗"。这里直接在 MapComponent 上收触摸事件：
+   * 按下 → 抬起，位移小于 16vp 且时长小于 500ms，就按一次点击处理，
+   * 用 `fromScreenLocation` 反查经纬度，完全绕开 SDK 的手势判定。
+   */
+  private onMapTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      const touch: TouchObject = event.touches[0];
+      this.touchDownX = touch.x;
+      this.touchDownY = touch.y;
+      this.touchDownAt = Date.now();
+      this.touchMoved = false;
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const touch: TouchObject = event.touches[0];
+      const dx: number = touch.x - this.touchDownX;
+      const dy: number = touch.y - this.touchDownY;
+      if (Math.sqrt(dx * dx + dy * dy) > MapDefaults.tapSlopVp) {
+        this.touchMoved = true;
+      }
+      return;
+    }
+    if (event.type !== TouchType.Up) {
+      return;
+    }
+    if (this.touchMoved || Date.now() - this.touchDownAt > MapDefaults.tapMaxMs) {
+      return;
+    }
+    // 诊断日志：能区分"我们自己识别到点按"和"地图 SDK 回调"两条通路，
+    // 排查"点了没反应"时先看这条有没有打出来。
+    hilog.info(DOMAIN, TAG, 'tap path=ownTouch x=%{public}d y=%{public}d',
+      Math.round(this.touchDownX), Math.round(this.touchDownY));
+    this.pickCityAtScreen(this.touchDownX, this.touchDownY);
+  }
+
+  /**
+   * 按**屏幕距离**找手指落点附近最近的城市，直接给出"点亮 / 查看"入口。
+   *
+   * 为什么不用公里阈值：同一段屏幕距离，在不同缩放级别对应的公里数差几十倍。
+   * 全国视野下 60 公里只有约 20 物理像素，而点位本身也只有二十几像素宽，
+   * 等于要求用户把指尖精确压在圆点上。
+   * 屏幕距离则是"所见即所得"：圆点周围一个指尖的范围内都能命中，
+   * 放大之后命中范围自动收窄，不会把隔壁城市抢过来。
+   */
+  private pickCityAtScreen(xVp: number, yVp: number): void {
+    const controller: map.MapComponentController | undefined = this.controller;
+    if (controller === undefined) {
+      return;
+    }
+    // 同一次点按会被 mapClick 和 onTouch 各触发一次，这里去重
+    const now: number = Date.now();
+    if (now - this.lastPickAt < 600) {
+      return;
+    }
+    this.lastPickAt = now;
+
+    const projection: map.Projection = controller.getProjection();
     let best: CityItem | undefined = undefined;
     let bestDistance: number = MapDefaults.tapRadiusVp;
     for (const city of CityRepository.all()) {
       const point: mapCommon.MapPoint =
         projection.toScreenLocation({ latitude: city.lat, longitude: city.lng });
-      const dx: number = px2vp(point.positionX) - tapX;
-      const dy: number = px2vp(point.positionY) - tapY;
+      const dx: number = px2vp(point.positionX) - xVp;
+      const dy: number = px2vp(point.positionY) - yVp;
       const distance: number = Math.sqrt(dx * dx + dy * dy);
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -993,6 +1052,26 @@ export struct MapPage {
         .height('100%')
         // 官方《开发应用沉浸式效果》：背景类元素用 expandSafeArea 把绘制延伸到状态栏 / 导航条
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        // 自己识别"点按"：手指的微小抖动会被地图 SDK 当成拖拽从而不回调 mapClick，
+        // 这里补一条通路，保证"点一下就能弹出来"（详见 onMapTouch 的注释）。
+        .onTouch((event: TouchEvent) => {
+          this.onMapTouch(event);
+        })
+
+      // 透明触摸层：只用来"看"用户的点按，不参与任何绘制。
+      //
+      // 为什么需要它：地图组件的原生手势可能会把触摸事件吃掉（尤其是手指点在地图点位上时），
+      // 那样我们在 MapComponent 上注册的 onTouch 也收不到。
+      // 这一层用 HitTestMode.Transparent —— 官方语义是"自身响应触摸，且不阻塞兄弟节点"，
+      // 也就是：我们收到点按的同时，地图照样能拖动、能双指缩放。
+      // 两条通路（这里 + 地图的 mapClick）都指向同一个命中函数，用时间戳去重。
+      Column()
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+        .onTouch((event: TouchEvent) => {
+          this.onMapTouch(event);
+        })
 
       // 名称标注层。
       // 视觉规范与华为底图自带标注保持一致：无底色、白描边（halo）、近黑字；
@@ -1036,19 +1115,19 @@ export struct MapPage {
               Row() {
                 Text('已点亮 ')
                   .fontSize(13)
-                  .fontColor(Palette.textDim)
+                  .fontColor(Palette.text)
                 Text(`${footprintStore.visitedCount}`)
                   .fontSize(19)
                   .fontColor(Palette.goldLight)
                   .fontWeight(FontWeight.Medium)
                 Text(` / ${footprintStore.totalUnits}`)
                   .fontSize(13)
-                  .fontColor(Palette.textDim)
+                  .fontColor(Palette.text)
               }
               Blank()
               Text(`覆盖 ${footprintStore.provinceCount} 省`)
                 .fontSize(13)
-                .fontColor(Palette.textDim)
+                .fontColor(Palette.text)
                 .maxLines(1)
             }
             .width('100%')
@@ -1111,7 +1190,7 @@ export struct MapPage {
               .fill(Palette.gold)
             Text('已点亮')
               .fontSize(10)
-              .fontColor(Palette.textDim)
+              .fontColor(Palette.text)
           }
 
           Row({ space: 5 }) {
@@ -1121,7 +1200,7 @@ export struct MapPage {
               .fill('#54637D')
             Text('未点亮')
               .fontSize(10)
-              .fontColor(Palette.textDim)
+              .fontColor(Palette.text)
           }
         }
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })

@@ -1,5 +1,6 @@
 import { AsyncCallback, BusinessError } from '@kit.BasicServicesKit';
 import { MapComponent, mapCommon, map } from '@kit.MapKit';
+import { curves } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
@@ -166,6 +167,11 @@ export struct MapPage {
   private lastPickAt: number = 0;
   /** TODO 临时诊断：被挤掉的省名（地图 SDK 日志刷爆配额，hilog 会被丢弃，只能画在屏幕上） */
   @Local debugDropped: string = '';
+  /**
+   * 悬浮控件入场标记：地图就绪后置 true，
+   * 让顶部胶囊 / 图例淡入并轻微下滑，而不是"啪"地一下出现。
+   */
+  @Local chromeIn: boolean = false;
 
   /**
    * 相机变化时的标注刷新（拖动地图时名字跟着走）。
@@ -223,6 +229,10 @@ export struct MapPage {
     // 点位就绪即视为地图可用，清掉"加载中"提示（mapLoad 事件在改样式后可能不再触发）
     this.mapReady = true;
     this.hint = '';
+    // 让悬浮控件跟着淡入（延迟一帧，保证初值先渲染出来）
+    setTimeout(() => {
+      this.chromeIn = true;
+    }, 60);
   }
 
   /** 应用 Petal Maps Studio 发布的地图样式 */
@@ -915,6 +925,9 @@ export struct MapPage {
         }
         .width('100%')
         .alignItems(VerticalAlign.Top)
+        // 让开右上角的系统关闭按钮（SheetSize.MEDIUM/LARGE 会画一个圆形 X），
+        // 否则"○ 未点亮"会和它叠在一起
+        .padding({ right: 44 })
 
         Divider().color(Palette.line).margin({ top: 12, bottom: 12 })
 
@@ -1178,6 +1191,10 @@ export struct MapPage {
       .width('100%')
       .padding({ left: 12, right: 12 })
       .margin({ top: 8 + this.safeTop })
+      // 入场：地图就绪后淡入 + 轻微下滑，避免"啪"地一下出现
+      .opacity(this.chromeIn ? 1 : 0)
+      .translate({ y: this.chromeIn ? 0 : -12 })
+      .animation({ duration: 380, curve: curves.springMotion(0.42, 0.9) })
 
       // 右侧悬浮控件：缩放 / 定位 / 全国 / 过滤。
       // 底图自带的缩放、指南针、比例尺、定位按钮已在 bindMapEvents 中关闭，
@@ -1230,6 +1247,9 @@ export struct MapPage {
       .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: ThemeColorMode.DARK })
       .border({ width: 0.5, color: '#1FFFFFFF' })
       .position({ left: 14, top: this.safeTop + 80 })
+      .opacity(this.chromeIn ? 1 : 0)
+      .translate({ y: this.chromeIn ? 0 : -8 })
+      .animation({ duration: 420, curve: curves.springMotion(0.42, 0.9) })
 
       // 提示条（加载中 / 失败 / 操作反馈）
       if (this.hint.length > 0) {

@@ -1,9 +1,10 @@
 import { AchievementEngine, AchievementItem } from '../viewmodel/AchievementEngine';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { CityRepository } from '../repository/CityRepository';
-import { Dimens, Palette } from '../common/Theme';
+import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
+import { curves } from '@kit.ArkUI';
 
 /**
  * 统计与成就（P-08）。
@@ -15,10 +16,21 @@ export struct StatsPage {
   @Local safeTop: number = 0;
   /** 底部导航条高度（vp），滚动内容要额外让出这么多 */
   @Local safeBottom: number = 0;
+  /** 入场动效标记 */
+  @Local entered: boolean = false;
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    this.playEnter();
+  }
+
+  /** 首次进入本页时淡入 + 轻微上浮，让页签切换不再"生硬地换一整屏" */
+  private playEnter(): void {
+    this.entered = false;
+    setTimeout(() => {
+      this.entered = true;
+    }, 30);
   }
 
   build() {
@@ -184,6 +196,9 @@ export struct StatsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Palette.bg)
+    .opacity(this.entered ? 1 : 0)
+    .translate({ y: this.entered ? 0 : 14 })
+    .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
   }
 
   @Builder

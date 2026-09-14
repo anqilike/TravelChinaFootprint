@@ -78,6 +78,11 @@ export class Motion {
   static readonly pressScale: number = 0.94;
   /** 常规过渡时长（毫秒） */
   static readonly normal: number = 240;
+  /**
+   * 底部页签切换时长（毫秒）。
+   * 比 normal 稍长一点，配合弹簧曲线收尾，让"地图 → 我的"这种跨三页的跳转也有落定感。
+   */
+  static readonly pageSwitch: number = 320;
   /** 缓慢过渡（用于光晕、进度） */
   static readonly slow: number = 420;
 }

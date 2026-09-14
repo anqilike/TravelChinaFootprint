@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
+import { curves, promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { LoginWithHuaweiIDButton, loginComponentManager } from '@kit.AccountKit';
 import { CityRepository } from '../repository/CityRepository';
@@ -9,7 +9,7 @@ import { ExportService } from '../service/ExportService';
 import { AccountService } from '../service/AccountService';
 import { CloudSyncService } from '../service/CloudSyncService';
 import { footprintStore } from '../viewmodel/FootprintStore';
-import { Dimens, Palette } from '../common/Theme';
+import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
 import { deviceInfo } from '@kit.BasicServicesKit';
@@ -42,6 +42,8 @@ export struct SettingsPage {
   @Local policyShown: boolean = false;
   /** 清除本机数据的二次确认 */
   @Local clearing: boolean = false;
+  /** 入场动效标记 */
+  @Local entered: boolean = false;
 
   /** 华为账号一键登录按钮参数（Account Kit 官方组件） */
   private loginParams: loginComponentManager.LoginWithHuaweiIDButtonParams = {
@@ -73,6 +75,15 @@ export struct SettingsPage {
     this.safeBottom = WindowService.safeBottom;
     this.loggedIn = AccountService.isLoggedIn();
     this.accountShortId = AccountService.shortId();
+    this.playEnter();
+  }
+
+  /** 首次进入本页时淡入 + 轻微上浮，让页签切换不再"生硬地换一整屏" */
+  private playEnter(): void {
+    this.entered = false;
+    setTimeout(() => {
+      this.entered = true;
+    }, 30);
   }
 
   /** 退出登录（只清登录态，不动本地足迹） */
@@ -398,6 +409,9 @@ export struct SettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Palette.bg)
+    .opacity(this.entered ? 1 : 0)
+    .translate({ y: this.entered ? 0 : 14 })
+    .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
     .bindSheet(this.policyShown, this.policySheet(), {
       height: SheetSize.LARGE,
       dragBar: true,

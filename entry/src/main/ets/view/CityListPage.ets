@@ -1,4 +1,4 @@
-import { promptAction } from '@kit.ArkUI';
+import { curves, promptAction } from '@kit.ArkUI';
 import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
 import { footprintStore } from '../viewmodel/FootprintStore';
@@ -22,10 +22,25 @@ export struct CityListPage {
   @Local safeTop: number = 0;
   /** 底部导航条高度（vp），滚动内容要额外让出这么多 */
   @Local safeBottom: number = 0;
+  /** 入场动效标记：首次进入本页时由 false → true，配合 .animation 做淡入上浮 */
+  @Local entered: boolean = false;
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    this.playEnter();
+  }
+
+  /**
+   * 首次进入本页时的入场动效：淡入 + 轻微上浮。
+   * 用 setTimeout 让初值先渲染一帧，再翻转让 .animation 捕捉到属性变化
+   * （官方《使用动画》里"属性动画"就是这么用的：属性变化 → 动画跟随）。
+   */
+  private playEnter(): void {
+    this.entered = false;
+    setTimeout(() => {
+      this.entered = true;
+    }, 30);
   }
 
   private isSelected(code: string): boolean {
@@ -302,6 +317,9 @@ export struct CityListPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Palette.bg)
+    .opacity(this.entered ? 1 : 0)
+    .translate({ y: this.entered ? 0 : 14 })
+    .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
   }
 
 }

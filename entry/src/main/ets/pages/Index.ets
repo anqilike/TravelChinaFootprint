@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import uiMaterial from '@ohos.arkui.uiMaterial';
+import { curves } from '@kit.ArkUI';
 import { DatabaseHelper } from '../repository/DatabaseHelper';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { AccountService } from '../service/AccountService';
@@ -203,7 +204,16 @@ struct Index {
           .vertical(false)
           // barOverlap=true：页签栏浮在内容之上，而不是把内容顶上去（必要条件之二）
           .barOverlap(true)
-          .animationDuration(Motion.normal)
+          // 切换动画三件套（官方《使用动画》+ Tabs 参考）：
+          //  1) CONTENT_FIRST_WITH_JUMP：先把目标页加载好，再"无动画跳到目标页附近、最后一段做动画"。
+          //     这是关键的体验修复——默认动画会按页签序号差横向滑动，
+          //     从"地图"(0) 直接切到"我的"(3) 时内容要从三屏外飞进来，看着很生硬；
+          //     开了这个模式后，长距离跳转只播最后一段，观感和其他切换一致。
+          //  2) 用弹簧曲线代替默认的线性缓动，收尾有自然的"落定感"。
+          //  3) 时长略长于默认，给弹簧留出回弹空间。
+          .animationMode(AnimationMode.CONTENT_FIRST_WITH_JUMP)
+          .animationDuration(Motion.pageSwitch)
+          .animationCurve(curves.springMotion(0.42, 0.9))
           // 悬浮样式 + 沉浸光感材质（必要条件之三，见 FloatingTabBarModifier）
           .attributeModifier(this.barModifier)
           .width('100%')

@@ -58,6 +58,8 @@ export struct StatsPage {
   @Monitor('active')
   onActiveChanged(): void {
     if (this.active) {
+      // 每次进本页都重新读一遍：用户可能在「我的 → 成就动画」里刚换过效果
+      this.loadEffectIndex();
       this.detectNewlyUnlocked();
     }
   }

@@ -1,11 +1,17 @@
 import { AchievementEngine, AchievementItem } from '../viewmodel/AchievementEngine';
 import { FootprintListener, footprintStore } from '../viewmodel/FootprintStore';
+import { BadgeCell } from '../viewmodel/BadgeCell';
+import { BadgeCard } from './BadgeCard';
 import { CityRepository } from '../repository/CityRepository';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
 import { curves } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN: number = 0x0000;
+const TAG: string = 'StatsPage';
 
 /**
  * 统计与成就（P-08）。
@@ -19,26 +25,42 @@ export struct StatsPage {
   @Local safeBottom: number = 0;
   /** 入场动效标记 */
   @Local entered: boolean = false;
-  /**
-   * 正在庆祝的徽章 id（空串表示没有）。
-   * 只保留"一套"庆祝参数，因为同一时刻只会点亮一枚徽章；
-   * 多枚新解锁时按队列依次播放。
-   */
+  /** 正在庆祝的徽章 id（空串表示没有） */
   @Local celebratingId: string = '';
-  /** 徽章图标的弹跳缩放（弹簧曲线自然过冲） */
-  @Local badgeScale: number = 1;
-  /** 光晕的扩散缩放与透明度 */
-  @Local burstScale: number = 1;
-  @Local burstOpacity: number = 0;
-  /** 卡片扫光的水平位移 */
-  @Local shineX: number = -140;
+  /**
+   * 9 枚徽章的可观察模型：动画参数存在模型里、由 BadgeCard 这个独立子组件读取，
+   * 这样字段一变子组件就刷新，不受 ForEach 复用策略影响。
+   */
+  @Local cells: BadgeCell[] = [];
+  private cellById: Map<string, BadgeCell> = new Map<string, BadgeCell>();
   /** 待庆祝队列 */
   private celebrateQueue: string[] = [];
+  /** 是否有庆祝流程在跑（含 480ms 的等待期），防止重复排程 */
+  private celebrationRunning: boolean = false;
+  /** 防止 aboutToAppear 与 @Monitor 同时触发导致重复检测 */
+  private detecting: boolean = false;
+  /**
+   * 由父组件传入：当前是否停留在统计页。
+   *
+   * 为什么需要它：新解锁检测必须在**每次进入本页**时做一遍。
+   * 只写在 aboutToAppear 里的话，页面创建过一次之后再切回来就不会触发，
+   * 用户点亮城市后切过来什么都看不到——这就是"没看到动画"的原因。
+   */
+  @Param active: boolean = false;
+
+  @Monitor('active')
+  onActiveChanged(): void {
+    if (this.active) {
+      this.detectNewlyUnlocked();
+    }
+  }
   /**
    * 订阅足迹变化：取消点亮会让某些徽章失去达成条件，
    * 这时要把它们从"已庆祝"集合里移除，之后再达成才会重新播放动画。
    */
   private footprintListener: FootprintListener = (code: string, visited: boolean) => {
+    // 点亮/取消都会影响达成情况，先把最新进度同步进徽章模型
+    this.syncCells();
     if (!visited) {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       AchievementEngine.forgetLocked(context, AchievementEngine.evaluate(footprintStore.visitedCodes));
@@ -48,9 +70,45 @@ export struct StatsPage {
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    this.ensureCells();
     this.playEnter();
     this.detectNewlyUnlocked();
     footprintStore.subscribe(this.footprintListener);
+  }
+
+  /** 首次创建 9 个可观察徽章模型（只建一次，之后复用） */
+  private ensureCells(): void {
+    if (this.cells.length === 0) {
+      const items: AchievementItem[] = AchievementEngine.evaluate(footprintStore.visitedCodes);
+      const list: BadgeCell[] = [];
+      for (const item of items) {
+        const cell: BadgeCell = new BadgeCell(item.id, item.name, item.desc, item.icon);
+        list.push(cell);
+        this.cellById.set(item.id, cell);
+      }
+      this.cells = list;
+    }
+    this.syncCells();
+  }
+
+  /** 把最新的达成情况同步进模型（只有真的变了才赋值，避免多余的刷新） */
+  private syncCells(): void {
+    const items: AchievementItem[] = AchievementEngine.evaluate(footprintStore.visitedCodes);
+    for (const item of items) {
+      const cell: BadgeCell | undefined = this.cellById.get(item.id);
+      if (cell === undefined) {
+        continue;
+      }
+      if (cell.progress !== item.progress) {
+        cell.progress = item.progress;
+      }
+      if (cell.target !== item.target) {
+        cell.target = item.target;
+      }
+      if (cell.unlocked !== item.unlocked) {
+        cell.unlocked = item.unlocked;
+      }
+    }
   }
 
   aboutToDisappear(): void {
@@ -59,62 +117,135 @@ export struct StatsPage {
 
   /** 找出"新解锁、还没庆祝过"的徽章，等入场动画放完再依次播放点亮动画 */
   private async detectNewlyUnlocked(): Promise<void> {
+    if (this.detecting) {
+      return;
+    }
+    this.detecting = true;
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const items: AchievementItem[] = AchievementEngine.evaluate(footprintStore.visitedCodes);
       const fresh: string[] = await AchievementEngine.takeNewlyUnlocked(context, items);
+      // 追加而不是覆盖：aboutToAppear 与 @Monitor 可能先后各触发一次检测，
+      // 后一次拿到的 fresh 通常是空的——如果直接赋值，就会把刚排好的队列清空，
+      // 结果动画一次都播不出来（实测踩过：两次检测只隔 9ms）。
+      for (const id of fresh) {
+        if (this.celebratingId !== id && !this.celebrateQueue.includes(id)) {
+          this.celebrateQueue.push(id);
+        }
+      }
       // 一次最多庆祝 3 枚，避免"一口气炸 9 个"反而显得吵
-      this.celebrateQueue = fresh.slice(0, 3);
-      if (this.celebrateQueue.length > 0) {
+      if (this.celebrateQueue.length > 3) {
+        this.celebrateQueue = this.celebrateQueue.slice(0, 3);
+      }
+      if (this.celebrateQueue.length > 0 && !this.celebrationRunning) {
+        this.celebrationRunning = true;
         setTimeout(() => {
           this.runCelebration();
         }, 480);
       }
     } catch (err) {
       this.celebrateQueue = [];
+    } finally {
+      this.detecting = false;
     }
   }
 
   private runCelebration(): void {
     const id: string | undefined = this.celebrateQueue.shift();
+    // 上一枚复位（动画已播完），保证同时只有一枚处于庆祝态
+    if (this.celebratingId.length > 0) {
+      this.resetCell(this.celebratingId);
+    }
     if (id === undefined) {
       this.celebratingId = '';
+      this.celebrationRunning = false;
       return;
     }
+    this.celebratingId = id;
     this.playUnlockAnimation(id);
     setTimeout(() => {
       this.runCelebration();
-    }, 1250);
+    }, 1550);
+  }
+
+  /** 复位某一枚的庆祝状态 */
+  private resetCell(id: string): void {
+    const cell: BadgeCell | undefined = this.cellById.get(id);
+    if (cell === undefined) {
+      return;
+    }
+    cell.celebrating = false;
+    cell.iconScale = 1;
+    cell.iconLift = 0;
+    cell.iconSpin = 0;
+    cell.glowScale = 1;
+    cell.glowOpacity = 0;
+    cell.shineX = -140;
   }
 
   /**
-   * 单枚徽章的点亮动画（三段同时起跑，合成一个"爆发"观感）：
-   *  1) 图标：0.78 → 1，配阻尼比 0.52 的弹簧曲线，自然过冲到约 1.15 再回弹；
-   *  2) 光晕：从 0.55 倍扩散到 1.9 倍并淡出，像一圈金色气浪推开；
-   *  3) 扫光：一道斜向白光从卡片左侧扫到右侧。
-   * 全部用 UIContext.animateTo（官方《使用动画》的"显式动画"），
-   * 先把初值写进去、下一帧再动，保证动画一定被触发。
+   * 单枚徽章的点亮动画。
+   *
+   * 主戏用 `keyframeAnimateTo`（官方《使用动画》里的关键帧动画）串成三段：
+   *  ① 浮起：向上抬起 26vp 并放大到 1.22，弹簧曲线；
+   *  ② 转圈：悬浮状态下绕 Y 轴匀速转满 360°（像硬币翻面，比平面旋转更有立体感）；
+   *  ③ 落回：回到原位与原始大小，弹簧阻尼比 0.55，落地时有一次轻微回弹。
+   * 同时在底层并行两条辅助动画：
+   *  · 光晕：从 0.55 倍扩散到 2 倍并淡出，像一圈金色气浪推开；
+   *  · 扫光：一道斜向白光从卡片左侧扫到右侧。
+   *
+   * 先把初值写进去、下一帧再动，保证动画一定会被触发。
    */
   private playUnlockAnimation(id: string): void {
-    this.celebratingId = id;
-    this.badgeScale = 0.78;
-    this.burstScale = 0.55;
-    this.burstOpacity = 0.9;
-    this.shineX = -140;
+    const cell: BadgeCell | undefined = this.cellById.get(id);
+    if (cell === undefined) {
+      return;
+    }
+    // 先把初值写进去（下一帧再动，保证动画一定被触发）
+    cell.celebrating = true;
+    cell.iconScale = 0.9;
+    cell.iconLift = 0;
+    cell.iconSpin = 0;
+    cell.glowScale = 0.55;
+    cell.glowOpacity = 0.9;
+    cell.shineX = -140;
+    hilog.info(DOMAIN, TAG, 'celebration start: %{public}s', id);
     setTimeout(() => {
       const ui: UIContext = this.getUIContext();
-      // 1) 图标弹出（弹簧过冲）
-      ui.animateTo({ duration: 640, curve: curves.springMotion(0.5, 0.52) }, () => {
-        this.badgeScale = 1.0;
+      // 主戏：浮起 → 转圈 → 落回
+      ui.keyframeAnimateTo({}, [
+        {
+          duration: 380,
+          curve: curves.springMotion(0.45, 0.8),
+          event: () => {
+            cell.iconLift = -30;
+            cell.iconScale = 1.24;
+          }
+        },
+        {
+          duration: 620,
+          curve: Curve.Linear,
+          event: () => {
+            cell.iconSpin = 360;
+          }
+        },
+        {
+          duration: 460,
+          curve: curves.springMotion(0.4, 0.55),
+          event: () => {
+            cell.iconLift = 0;
+            cell.iconScale = 1.0;
+          }
+        }
+      ]);
+      // 光晕扩散 + 淡出
+      ui.animateTo({ duration: 1000, curve: curves.springMotion(0.55, 0.85) }, () => {
+        cell.glowScale = 2.0;
+        cell.glowOpacity = 0;
       });
-      // 2) 光晕扩散 + 淡出
-      ui.animateTo({ duration: 900, curve: curves.springMotion(0.55, 0.85) }, () => {
-        this.burstScale = 1.9;
-        this.burstOpacity = 0;
-      });
-      // 3) 扫光（延迟一点起跑，跟在爆发后面）
-      ui.animateTo({ duration: 760, delay: 90, curve: Curve.EaseOut }, () => {
-        this.shineX = 150;
+      // 扫光（延迟一点起跑，跟在浮起后面）
+      ui.animateTo({ duration: 760, delay: 140, curve: Curve.EaseOut }, () => {
+        cell.shineX = 150;
       });
     }, 40);
   }
@@ -242,116 +373,11 @@ export struct StatsPage {
 
         // 成就徽章：一行 3 个、共 3 行（9 枚）
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          ForEach(AchievementEngine.evaluate(footprintStore.visitedCodes),
-            (item: AchievementItem, index: number) => {
-              Stack({ alignContent: Alignment.Center }) {
-                Column() {
-                  // 图标区：光晕 + 扩散光环 + 图标
-                  Stack({ alignContent: Alignment.Center }) {
-                    // 常驻金色光晕（已解锁才亮）；庆祝时随扩散动画放大淡出
-                    Column()
-                      .width(50)
-                      .height(50)
-                      .borderRadius(25)
-                      .radialGradient({
-                        center: ['50%', '50%'],
-                        radius: '50%',
-                        colors: [['#59F5C542', 0.0], ['#2EF5C542', 0.55], ['#00F5C542', 1.0]]
-                      })
-                      .opacity(item.unlocked
-                        ? (this.celebratingId === item.id ? this.burstOpacity : 0.85) : 0)
-                      .scale({
-                        x: this.celebratingId === item.id ? this.burstScale : 1,
-                        y: this.celebratingId === item.id ? this.burstScale : 1
-                      })
-
-                    // 扩散光环：只在庆祝时出现，像一圈气浪推开
-                    if (this.celebratingId === item.id) {
-                      Column()
-                        .width(44)
-                        .height(44)
-                        .borderRadius(22)
-                        .border({ width: 2, color: '#B3F5C542' })
-                        .scale({ x: this.burstScale, y: this.burstScale })
-                        .opacity(this.burstOpacity)
-                    }
-
-                    Text(item.icon)
-                      .fontSize(26)
-                      .scale({
-                        x: this.celebratingId === item.id ? this.badgeScale : 1,
-                        y: this.celebratingId === item.id ? this.badgeScale : 1
-                      })
-                      // 未解锁的徽章用灰度滤镜压下去，比单纯降透明度更像"还没点亮"
-                      .grayscale(item.unlocked ? 0 : 1)
-                      .opacity(item.unlocked ? 1 : 0.65)
-                  }
-                  .width(50)
-                  .height(50)
-
-                  Text(item.name)
-                    .fontSize(13)
-                    .fontColor(item.unlocked ? Palette.text : Palette.textDim)
-                    .fontWeight(item.unlocked ? FontWeight.Medium : FontWeight.Normal)
-                    .margin({ top: 6 })
-                    .maxLines(1)
-                  Text(item.desc)
-                    .fontSize(10)
-                    .fontColor(Palette.textDim)
-                    .margin({ top: 2 })
-                    .maxLines(2)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .textAlign(TextAlign.Center)
-                  Text(item.unlocked ? '★ 已解锁' : `${item.progress}/${item.target}`)
-                    .fontSize(10)
-                    .fontColor(item.unlocked ? Palette.gold : Palette.textDim)
-                    .fontWeight(item.unlocked ? FontWeight.Medium : FontWeight.Normal)
-                    .margin({ top: 6 })
-                }
-                .width('100%')
-                .height('100%')
-                .justifyContent(FlexAlign.Center)
-                .padding(8)
-
-                // 扫光：一条斜向白光从卡片左侧扫到右侧（只在庆祝时出现）
-                if (this.celebratingId === item.id) {
-                  Column()
-                    .width(26)
-                    .height(220)
-                    .linearGradient({
-                      angle: 18,
-                      colors: [['#00FFFFFF', 0.0], ['#80FFFFFF', 0.5], ['#00FFFFFF', 1.0]]
-                    })
-                    .translate({ x: this.shineX })
-                    .rotate({ angle: 16 })
-                    .hitTestBehavior(HitTestMode.None)
-                }
-              }
-              // 三列布局：每格占比 31.5%，配合 SpaceBetween 正好一行三个
-              .width('31.5%')
-              .height(122)
-              .margin({ bottom: 10 })
-              .borderRadius(16)
-              .clip(true)
-              .backgroundColor(item.unlocked ? '#33F5C542' : '#1A0F1626')
-              .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
-              .border({
-                width: item.unlocked ? 0.8 : 0.5,
-                color: item.unlocked ? '#66F5C542' : '#14FFFFFF'
-              })
-              // 入场：逐枚错开淡入上浮，一行三个像"依次落位"
-              .opacity(this.entered ? 1 : 0)
-              .translate({ y: this.entered ? 0 : 12 })
-              .animation({
-                duration: Motion.normal + 60,
-                delay: 40 + index * 45,
-                curve: curves.springMotion(0.42, 0.9)
-              })
-              // key 必须带上"解锁状态 + 进度"：ArkUI 的 ForEach 只按 key 做 diff，
-              // 只用 id 的话，取消点亮后 id 没变，这一项就被判定为"没变"而不重建，
-              // 徽章会一直停在已点亮的样子（用户实测遇到的 bug）。
-            }, (item: AchievementItem) =>
-              `${item.id}_${item.unlocked ? 1 : 0}_${item.progress}`)
+          // key 用稳定的 id 即可：卡片内容由 BadgeCard 读 @ObservedV2 的 @Trace 字段驱动刷新，
+          // 不依赖 ForEach 的 diff（详见 BadgeCell 的注释）
+          ForEach(this.cells, (cell: BadgeCell, index: number) => {
+            BadgeCard({ cell: cell, index: index, entered: this.entered })
+          }, (cell: BadgeCell) => cell.id)
         }
         .width('100%')
 

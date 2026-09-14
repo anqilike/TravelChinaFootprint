@@ -191,7 +191,8 @@ struct Index {
             .tabBar(this.navTab($r('app.media.ic_nav_list'), '清单'))
 
             TabContent() {
-              StatsPage()
+              // 传入"当前是否停留在统计页"：成就的新解锁检测要在每次进入时做一遍
+              StatsPage({ active: this.currentIndex === 2 })
             }
             .tabBar(this.navTab($r('app.media.ic_nav_chart'), '统计'))
 

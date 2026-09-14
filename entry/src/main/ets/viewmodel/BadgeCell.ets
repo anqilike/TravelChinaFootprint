@@ -1,0 +1,42 @@
+/**
+ * 成就徽章的可观察模型。
+ *
+ * 为什么不用「普通对象 + ForEach」：
+ *  ArkUI 的 ForEach 只按 key 做 diff，键值不变时**不会重建**子节点，
+ *  写在项里的动画状态（缩放 / 位移 / 旋转）永远不会被重新求值——
+ *  实测表现就是"徽章点亮动画完全看不到"。
+ *
+ * 正确做法：把每枚徽章做成 @ObservedV2 + @Trace，交给一个**独立的子组件**渲染。
+ * 字段变化会直接驱动那个子组件刷新，完全不依赖 ForEach 的 diff 策略。
+ */
+@ObservedV2
+export class BadgeCell {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+
+  /** 解锁状态与进度（由足迹数据驱动） */
+  @Trace progress: number = 0;
+  @Trace target: number = 1;
+  @Trace unlocked: boolean = false;
+
+  /** 以下为点亮动画参数，只有"正在庆祝"的那一枚会被改动 */
+  @Trace celebrating: boolean = false;
+  /** 图标缩放 / 浮起高度 / 绕 Y 轴旋转角度 */
+  @Trace iconScale: number = 1;
+  @Trace iconLift: number = 0;
+  @Trace iconSpin: number = 0;
+  /** 金色光晕的扩散与透明度 */
+  @Trace glowScale: number = 1;
+  @Trace glowOpacity: number = 0;
+  /** 卡片扫光的水平位移 */
+  @Trace shineX: number = -140;
+
+  constructor(id: string, name: string, desc: string, icon: string) {
+    this.id = id;
+    this.name = name;
+    this.desc = desc;
+    this.icon = icon;
+  }
+}

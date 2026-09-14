@@ -1,5 +1,5 @@
 import { AchievementEngine, AchievementItem } from '../viewmodel/AchievementEngine';
-import { footprintStore } from '../viewmodel/FootprintStore';
+import { FootprintListener, footprintStore } from '../viewmodel/FootprintStore';
 import { CityRepository } from '../repository/CityRepository';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
@@ -34,12 +34,27 @@ export struct StatsPage {
   @Local shineX: number = -140;
   /** 待庆祝队列 */
   private celebrateQueue: string[] = [];
+  /**
+   * 订阅足迹变化：取消点亮会让某些徽章失去达成条件，
+   * 这时要把它们从"已庆祝"集合里移除，之后再达成才会重新播放动画。
+   */
+  private footprintListener: FootprintListener = (code: string, visited: boolean) => {
+    if (!visited) {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      AchievementEngine.forgetLocked(context, AchievementEngine.evaluate(footprintStore.visitedCodes));
+    }
+  };
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
     this.playEnter();
     this.detectNewlyUnlocked();
+    footprintStore.subscribe(this.footprintListener);
+  }
+
+  aboutToDisappear(): void {
+    footprintStore.unsubscribe(this.footprintListener);
   }
 
   /** 找出"新解锁、还没庆祝过"的徽章，等入场动画放完再依次播放点亮动画 */
@@ -188,8 +203,24 @@ export struct StatsPage {
 
         // 覆盖率明细
         Column() {
-          this.statRow('到访最多的城市', footprintStore.mostVisitedCity.length > 0 ?
-            `${footprintStore.mostVisitedCity}（${footprintStore.mostVisitedTimes} 次）` : '—')
+          // 注意：这里不能用"按值传参的 @Builder"（this.statRow(...)）。
+          // 官方文档明确说明 @Builder 的按值参数不参与刷新：
+          // 取消点亮后 mostVisitedCity 变了，传进去的字符串却不会重新求值，
+          // 界面会一直停在"雅安市（1 次）"。直接读 @Trace 状态才能建立依赖。
+          Row() {
+            Text('到访最多的城市')
+              .fontSize(14)
+              .fontColor(Palette.text)
+              .layoutWeight(1)
+            Text(footprintStore.mostVisitedCity.length > 0
+              ? `${footprintStore.mostVisitedCity}（${footprintStore.mostVisitedTimes} 次）` : '—')
+              .fontSize(13)
+              .fontColor(Palette.textDim)
+              .textAlign(TextAlign.End)
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .padding({ top: 14, bottom: 14 })
           Divider().color(Palette.line)
           this.statRow('城市字典版本', `${CityRepository.dictVersion()} · ${CityRepository.dictGeneratedAt()}`)
         }
@@ -316,7 +347,11 @@ export struct StatsPage {
                 delay: 40 + index * 45,
                 curve: curves.springMotion(0.42, 0.9)
               })
-            }, (item: AchievementItem) => item.id)
+              // key 必须带上"解锁状态 + 进度"：ArkUI 的 ForEach 只按 key 做 diff，
+              // 只用 id 的话，取消点亮后 id 没变，这一项就被判定为"没变"而不重建，
+              // 徽章会一直停在已点亮的样子（用户实测遇到的 bug）。
+            }, (item: AchievementItem) =>
+              `${item.id}_${item.unlocked ? 1 : 0}_${item.progress}`)
         }
         .width('100%')
 

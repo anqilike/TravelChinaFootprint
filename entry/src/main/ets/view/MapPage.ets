@@ -1207,9 +1207,9 @@ export struct MapPage {
         this.roundButton('reset', () => {
           this.resetView();
         }, false)
-        this.roundButton('filter', () => {
-          this.toggleUnvisited();
-        }, !this.showUnvisited)
+        // 过滤按钮的高亮跟着 showUnvisited 变，所以单独写一个**不带参数**的 @Builder：
+        // 按值传参的 @Builder 不参与刷新（官方文档明确），参数化的写法点完不会变色。
+        this.filterButton()
       }
       .alignItems(HorizontalAlign.End)
       .position({ right: 14, bottom: 92 + this.safeBottom })
@@ -1297,6 +1297,35 @@ export struct MapPage {
     .shadow({ radius: 16, color: '#73000000', offsetX: 0, offsetY: 6 })
     .stateStyles({ normal: this.normalFeedback, pressed: this.pressedFeedback })
     .onClick(action)
+  }
+
+  /**
+   * "只看已点亮"按钮。
+   * 和 roundButton 的区别：它 **不带参数**，直接读 this.showUnvisited，
+   * 这样点完立刻能变色（参数化的 @Builder 不参与刷新）。
+   */
+  @Builder
+  filterButton() {
+    Button() {
+      // 图标也直接写在这里：controlIcon 是"带参数的 @Builder"，同样不参与刷新，
+      // 会把旧的白色图标一直留在按钮上（只变底色不变图标，实测踩过）。
+      Image(MapPage.iconRes('filter'))
+        .width(20)
+        .height(20)
+        .objectFit(ImageFit.Contain)
+        .fillColor(this.showUnvisited ? Palette.text : Palette.gold)
+    }
+    .width(Dimens.fabSize)
+    .height(Dimens.fabSize)
+    .borderRadius(Dimens.fabSize / 2)
+    .backgroundColor(this.showUnvisited ? '#99101828' : '#3DF5C542')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: ThemeColorMode.DARK })
+    .border({ width: 0.5, color: this.showUnvisited ? '#1FFFFFFF' : '#73F5C542' })
+    .shadow({ radius: 16, color: '#73000000', offsetX: 0, offsetY: 6 })
+    .stateStyles({ normal: this.normalFeedback, pressed: this.pressedFeedback })
+    .onClick(() => {
+      this.toggleUnvisited();
+    })
   }
 
   /** 缩放控件组：上下两个按钮合成一根"药丸"，和单个圆按钮区分开 */

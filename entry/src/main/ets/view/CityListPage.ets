@@ -247,7 +247,8 @@ export struct CityListPage {
               }
             })
           }
-        }, (city: CityItem) => city.code)
+          // 同 StatsPage：key 要带上点亮状态，否则取消/点亮后行内容不会刷新
+        }, (city: CityItem) => `${city.code}_${footprintStore.isVisited(city.code) ? 1 : 0}`)
       }
         .width('100%')
         .layoutWeight(1)

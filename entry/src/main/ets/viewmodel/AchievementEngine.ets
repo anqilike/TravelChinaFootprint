@@ -72,6 +72,47 @@ export class AchievementEngine {
     }
   }
 
+  /**
+   * 把"已经取消达成"的徽章从"已庆祝"集合里移除。
+   *
+   * 场景：用户取消点亮某座城市后，「首站」不再达成 → 徽章回到未点亮状态；
+   * 之后他再点亮一座城市，这枚徽章应该**重新庆祝一次**，而不是因为
+   * seen_ids 里还留着它就静悄悄地亮起来。
+   */
+  static async forgetLocked(context: common.UIAbilityContext,
+    items: AchievementItem[]): Promise<void> {
+    try {
+      if (AchievementEngine.store === undefined) {
+        const options: preferences.Options = { name: SEEN_STORE };
+        AchievementEngine.store = await preferences.getPreferences(context, options);
+      }
+      const store: preferences.Preferences | undefined = AchievementEngine.store;
+      if (store === undefined) {
+        return;
+      }
+      const raw: string = store.getSync(SEEN_KEY, '') as string;
+      if (raw.length === 0) {
+        return;
+      }
+      const seen: string[] = raw.split(',');
+      const locked: string[] = [];
+      for (const item of items) {
+        if (!item.unlocked) {
+          locked.push(item.id);
+        }
+      }
+      const kept: string[] = seen.filter((id: string) => !locked.includes(id));
+      if (kept.length === seen.length) {
+        return;
+      }
+      await store.put(SEEN_KEY, kept.join(','));
+      await store.flush();
+      hilog.info(DOMAIN, TAG, 'forget locked badges: %{public}s', raw);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'forgetLocked failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
   static evaluate(visitedCodes: string[]): AchievementItem[] {
     const count: number = visitedCodes.length;
     const provinces: Set<string> = new Set<string>();

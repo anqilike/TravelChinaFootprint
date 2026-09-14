@@ -1,5 +1,13 @@
 import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
+import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN: number = 0x0000;
+const TAG: string = 'AchievementEngine';
+const SEEN_STORE: string = 'achievement_store';
+const SEEN_KEY: string = 'seen_ids';
 
 /** 成就徽章 */
 export interface AchievementItem {
@@ -18,6 +26,52 @@ const MUNICIPALITY_CODES: string[] = ['110000', '120000', '310000', '500000'];
 
 /** 成就计算：全部本地计算，不依赖服务端 */
 export class AchievementEngine {
+  private static store: preferences.Preferences | undefined = undefined;
+
+  /**
+   * 取出"本次新解锁、但用户还没看到过"的徽章 id，用于播放点亮动画。
+   *
+   * 为什么要落盘：徽章是在地图页点亮城市时解锁的，用户往往过一会儿才切到统计页。
+   * 如果只在内存里比较，杀进程重进就分不清"新解锁"和"早就解锁"，
+   * 要么动画不播、要么每次进页面都重播一遍。
+   *
+   * 副作用：调用后会把当前所有已解锁徽章记为"已见"。
+   */
+  static async takeNewlyUnlocked(context: common.UIAbilityContext,
+    items: AchievementItem[]): Promise<string[]> {
+    const unlocked: string[] = [];
+    for (const item of items) {
+      if (item.unlocked) {
+        unlocked.push(item.id);
+      }
+    }
+    try {
+      if (AchievementEngine.store === undefined) {
+        const options: preferences.Options = { name: SEEN_STORE };
+        AchievementEngine.store = await preferences.getPreferences(context, options);
+      }
+      const store: preferences.Preferences | undefined = AchievementEngine.store;
+      if (store === undefined) {
+        return [];
+      }
+      const raw: string = store.getSync(SEEN_KEY, '') as string;
+      const seen: string[] = raw.length === 0 ? [] : raw.split(',');
+      const fresh: string[] = [];
+      for (const id of unlocked) {
+        if (!seen.includes(id)) {
+          fresh.push(id);
+        }
+      }
+      await store.put(SEEN_KEY, unlocked.join(','));
+      await store.flush();
+      hilog.info(DOMAIN, TAG, 'newly unlocked: %{public}s', fresh.join(','));
+      return fresh;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'takeNewlyUnlocked failed: %{public}s', JSON.stringify(err));
+      return [];
+    }
+  }
+
   static evaluate(visitedCodes: string[]): AchievementItem[] {
     const count: number = visitedCodes.length;
     const provinces: Set<string> = new Set<string>();

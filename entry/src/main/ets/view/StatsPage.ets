@@ -5,6 +5,7 @@ import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
 import { curves } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 
 /**
  * 统计与成就（P-08）。
@@ -18,11 +19,89 @@ export struct StatsPage {
   @Local safeBottom: number = 0;
   /** 入场动效标记 */
   @Local entered: boolean = false;
+  /**
+   * 正在庆祝的徽章 id（空串表示没有）。
+   * 只保留"一套"庆祝参数，因为同一时刻只会点亮一枚徽章；
+   * 多枚新解锁时按队列依次播放。
+   */
+  @Local celebratingId: string = '';
+  /** 徽章图标的弹跳缩放（弹簧曲线自然过冲） */
+  @Local badgeScale: number = 1;
+  /** 光晕的扩散缩放与透明度 */
+  @Local burstScale: number = 1;
+  @Local burstOpacity: number = 0;
+  /** 卡片扫光的水平位移 */
+  @Local shineX: number = -140;
+  /** 待庆祝队列 */
+  private celebrateQueue: string[] = [];
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
     this.playEnter();
+    this.detectNewlyUnlocked();
+  }
+
+  /** 找出"新解锁、还没庆祝过"的徽章，等入场动画放完再依次播放点亮动画 */
+  private async detectNewlyUnlocked(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const items: AchievementItem[] = AchievementEngine.evaluate(footprintStore.visitedCodes);
+      const fresh: string[] = await AchievementEngine.takeNewlyUnlocked(context, items);
+      // 一次最多庆祝 3 枚，避免"一口气炸 9 个"反而显得吵
+      this.celebrateQueue = fresh.slice(0, 3);
+      if (this.celebrateQueue.length > 0) {
+        setTimeout(() => {
+          this.runCelebration();
+        }, 480);
+      }
+    } catch (err) {
+      this.celebrateQueue = [];
+    }
+  }
+
+  private runCelebration(): void {
+    const id: string | undefined = this.celebrateQueue.shift();
+    if (id === undefined) {
+      this.celebratingId = '';
+      return;
+    }
+    this.playUnlockAnimation(id);
+    setTimeout(() => {
+      this.runCelebration();
+    }, 1250);
+  }
+
+  /**
+   * 单枚徽章的点亮动画（三段同时起跑，合成一个"爆发"观感）：
+   *  1) 图标：0.78 → 1，配阻尼比 0.52 的弹簧曲线，自然过冲到约 1.15 再回弹；
+   *  2) 光晕：从 0.55 倍扩散到 1.9 倍并淡出，像一圈金色气浪推开；
+   *  3) 扫光：一道斜向白光从卡片左侧扫到右侧。
+   * 全部用 UIContext.animateTo（官方《使用动画》的"显式动画"），
+   * 先把初值写进去、下一帧再动，保证动画一定被触发。
+   */
+  private playUnlockAnimation(id: string): void {
+    this.celebratingId = id;
+    this.badgeScale = 0.78;
+    this.burstScale = 0.55;
+    this.burstOpacity = 0.9;
+    this.shineX = -140;
+    setTimeout(() => {
+      const ui: UIContext = this.getUIContext();
+      // 1) 图标弹出（弹簧过冲）
+      ui.animateTo({ duration: 640, curve: curves.springMotion(0.5, 0.52) }, () => {
+        this.badgeScale = 1.0;
+      });
+      // 2) 光晕扩散 + 淡出
+      ui.animateTo({ duration: 900, curve: curves.springMotion(0.55, 0.85) }, () => {
+        this.burstScale = 1.9;
+        this.burstOpacity = 0;
+      });
+      // 3) 扫光（延迟一点起跑，跟在爆发后面）
+      ui.animateTo({ duration: 760, delay: 90, curve: Curve.EaseOut }, () => {
+        this.shineX = 150;
+      });
+    }, 40);
   }
 
   /** 首次进入本页时淡入 + 轻微上浮，让页签切换不再"生硬地换一整屏" */
@@ -132,39 +211,112 @@ export struct StatsPage {
 
         // 成就徽章：一行 3 个、共 3 行（9 枚）
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          ForEach(AchievementEngine.evaluate(footprintStore.visitedCodes), (item: AchievementItem) => {
-            Column() {
-              Text(item.icon)
-                .fontSize(22)
-              Text(item.name)
-                .fontSize(13)
-                .fontColor(Palette.text)
-                .margin({ top: 6 })
-                .maxLines(1)
-              Text(item.desc)
-                .fontSize(10)
-                .fontColor(Palette.textDim)
-                .margin({ top: 2 })
-                .maxLines(2)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .textAlign(TextAlign.Center)
-              Text(item.unlocked ? '已解锁' : `${item.progress}/${item.target}`)
-                .fontSize(10)
-                .fontColor(item.unlocked ? Palette.gold : Palette.textDim)
-                .margin({ top: 6 })
-            }
-            // 三列布局：每格占比 31.5%，配合 SpaceBetween 正好一行三个
-            .width('31.5%')
-            .height(122)
-            .justifyContent(FlexAlign.Center)
-            .padding(8)
-            .margin({ bottom: 10 })
-            .borderRadius(16)
-            .backgroundColor(item.unlocked ? '#33F5C542' : '#1A0F1626')
-            .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
-            .border({ width: 0.5, color: item.unlocked ? '#66F5C542' : '#14FFFFFF' })
-            .opacity(item.unlocked ? 1.0 : 0.55)
-          }, (item: AchievementItem) => item.id)
+          ForEach(AchievementEngine.evaluate(footprintStore.visitedCodes),
+            (item: AchievementItem, index: number) => {
+              Stack({ alignContent: Alignment.Center }) {
+                Column() {
+                  // 图标区：光晕 + 扩散光环 + 图标
+                  Stack({ alignContent: Alignment.Center }) {
+                    // 常驻金色光晕（已解锁才亮）；庆祝时随扩散动画放大淡出
+                    Column()
+                      .width(50)
+                      .height(50)
+                      .borderRadius(25)
+                      .radialGradient({
+                        center: ['50%', '50%'],
+                        radius: '50%',
+                        colors: [['#59F5C542', 0.0], ['#2EF5C542', 0.55], ['#00F5C542', 1.0]]
+                      })
+                      .opacity(item.unlocked
+                        ? (this.celebratingId === item.id ? this.burstOpacity : 0.85) : 0)
+                      .scale({
+                        x: this.celebratingId === item.id ? this.burstScale : 1,
+                        y: this.celebratingId === item.id ? this.burstScale : 1
+                      })
+
+                    // 扩散光环：只在庆祝时出现，像一圈气浪推开
+                    if (this.celebratingId === item.id) {
+                      Column()
+                        .width(44)
+                        .height(44)
+                        .borderRadius(22)
+                        .border({ width: 2, color: '#B3F5C542' })
+                        .scale({ x: this.burstScale, y: this.burstScale })
+                        .opacity(this.burstOpacity)
+                    }
+
+                    Text(item.icon)
+                      .fontSize(26)
+                      .scale({
+                        x: this.celebratingId === item.id ? this.badgeScale : 1,
+                        y: this.celebratingId === item.id ? this.badgeScale : 1
+                      })
+                      // 未解锁的徽章用灰度滤镜压下去，比单纯降透明度更像"还没点亮"
+                      .grayscale(item.unlocked ? 0 : 1)
+                      .opacity(item.unlocked ? 1 : 0.65)
+                  }
+                  .width(50)
+                  .height(50)
+
+                  Text(item.name)
+                    .fontSize(13)
+                    .fontColor(item.unlocked ? Palette.text : Palette.textDim)
+                    .fontWeight(item.unlocked ? FontWeight.Medium : FontWeight.Normal)
+                    .margin({ top: 6 })
+                    .maxLines(1)
+                  Text(item.desc)
+                    .fontSize(10)
+                    .fontColor(Palette.textDim)
+                    .margin({ top: 2 })
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .textAlign(TextAlign.Center)
+                  Text(item.unlocked ? '★ 已解锁' : `${item.progress}/${item.target}`)
+                    .fontSize(10)
+                    .fontColor(item.unlocked ? Palette.gold : Palette.textDim)
+                    .fontWeight(item.unlocked ? FontWeight.Medium : FontWeight.Normal)
+                    .margin({ top: 6 })
+                }
+                .width('100%')
+                .height('100%')
+                .justifyContent(FlexAlign.Center)
+                .padding(8)
+
+                // 扫光：一条斜向白光从卡片左侧扫到右侧（只在庆祝时出现）
+                if (this.celebratingId === item.id) {
+                  Column()
+                    .width(26)
+                    .height(220)
+                    .linearGradient({
+                      angle: 18,
+                      colors: [['#00FFFFFF', 0.0], ['#80FFFFFF', 0.5], ['#00FFFFFF', 1.0]]
+                    })
+                    .translate({ x: this.shineX })
+                    .rotate({ angle: 16 })
+                    .hitTestBehavior(HitTestMode.None)
+                }
+              }
+              // 三列布局：每格占比 31.5%，配合 SpaceBetween 正好一行三个
+              .width('31.5%')
+              .height(122)
+              .margin({ bottom: 10 })
+              .borderRadius(16)
+              .clip(true)
+              .backgroundColor(item.unlocked ? '#33F5C542' : '#1A0F1626')
+              .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
+              .border({
+                width: item.unlocked ? 0.8 : 0.5,
+                color: item.unlocked ? '#66F5C542' : '#14FFFFFF'
+              })
+              // 入场：逐枚错开淡入上浮，一行三个像"依次落位"
+              .opacity(this.entered ? 1 : 0)
+              .translate({ y: this.entered ? 0 : 12 })
+              .animation({
+                duration: Motion.normal + 60,
+                delay: 40 + index * 45,
+                curve: curves.springMotion(0.42, 0.9)
+              })
+            }, (item: AchievementItem) => item.id)
         }
         .width('100%')
 

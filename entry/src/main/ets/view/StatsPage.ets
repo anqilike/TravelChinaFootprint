@@ -2,6 +2,8 @@ import { AchievementEngine, AchievementItem } from '../viewmodel/AchievementEngi
 import { FootprintListener, footprintStore } from '../viewmodel/FootprintStore';
 import { BadgeCell } from '../viewmodel/BadgeCell';
 import { BadgeCard } from './BadgeCard';
+import { CelebrationParticle } from '../viewmodel/CelebrationParticle';
+import { CelebrationParticleView } from './CelebrationParticleView';
 import { CityRepository } from '../repository/CityRepository';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
@@ -27,6 +29,24 @@ export struct StatsPage {
   @Local entered: boolean = false;
   /** 正在庆祝的徽章 id（空串表示没有） */
   @Local celebratingId: string = '';
+  /** 庆祝浮层：粒子（18 颗，散开 → 汇聚 → 星芒） */
+  @Local particles: CelebrationParticle[] = [];
+  /** 屏幕中心那枚大勋章的状态 */
+  @Local heroIcon: string = '';
+  @Local heroX: number = 0;
+  @Local heroY: number = 0;
+  @Local heroScale: number = 0.2;
+  @Local heroOpacity: number = 0;
+  @Local heroGlowScale: number = 0.4;
+  @Local heroGlowOpacity: number = 0;
+  /** 根容器尺寸，用来算"屏幕中心" */
+  private rootWidth: number = 0;
+  private rootHeight: number = 0;
+  /** 根容器在窗口坐标系里的左上角，用来把图标位置换算成浮层坐标 */
+  private rootGlobalX: number = 0;
+  private rootGlobalY: number = 0;
+  /** 每枚徽章图标的中心（窗口坐标系），由 BadgeCard 上报 */
+  private iconAreas: Map<string, number[]> = new Map<string, number[]>();
   /**
    * 9 枚徽章的可观察模型：动画参数存在模型里、由 BadgeCard 这个独立子组件读取，
    * 这样字段一变子组件就刷新，不受 ForEach 复用策略影响。
@@ -71,10 +91,30 @@ export struct StatsPage {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
     this.ensureCells();
+    this.ensureParticles();
     this.playEnter();
     this.detectNewlyUnlocked();
     footprintStore.subscribe(this.footprintListener);
   }
+
+  /** 创建庆祝用的 18 颗粒子（只建一次，之后复用同一批对象） */
+  private ensureParticles(): void {
+    if (this.particles.length > 0) {
+      return;
+    }
+    const list: CelebrationParticle[] = [];
+    for (let i = 0; i < 18; i++) {
+      const size: number = i % 5 === 0 ? 10 : (i % 3 === 0 ? 7 : 5);
+      const color: string = i % 4 === 0 ? '#FFF6D5' : '#F5C542';
+      list.push(new CelebrationParticle(size, color));
+    }
+    this.particles = list;
+  }
+
+  /** BadgeCard 上报图标位置：存下中心点（窗口坐标），庆祝时用来算起点与终点 */
+  private onIconArea = (id: string, x: number, y: number, w: number, h: number): void => {
+    this.iconAreas.set(id, [x + w / 2, y + h / 2]);
+  };
 
   /** 首次创建 9 个可观察徽章模型（只建一次，之后复用） */
   private ensureCells(): void {
@@ -165,7 +205,7 @@ export struct StatsPage {
     this.playUnlockAnimation(id);
     setTimeout(() => {
       this.runCelebration();
-    }, 1550);
+    }, 2750);
   }
 
   /** 复位某一枚的庆祝状态 */
@@ -175,79 +215,131 @@ export struct StatsPage {
       return;
     }
     cell.celebrating = false;
-    cell.iconScale = 1;
-    cell.iconLift = 0;
-    cell.iconSpin = 0;
-    cell.glowScale = 1;
-    cell.glowOpacity = 0;
     cell.shineX = -140;
   }
 
   /**
-   * 单枚徽章的点亮动画。
+   * 单枚徽章的点亮庆祝动画（约 2.6 秒）：
    *
-   * 主戏用 `keyframeAnimateTo`（官方《使用动画》里的关键帧动画）串成三段：
-   *  ① 浮起：向上抬起 26vp 并放大到 1.22，弹簧曲线；
-   *  ② 转圈：悬浮状态下绕 Y 轴匀速转满 360°（像硬币翻面，比平面旋转更有立体感）；
-   *  ③ 落回：回到原位与原始大小，弹簧阻尼比 0.55，落地时有一次轻微回弹。
-   * 同时在底层并行两条辅助动画：
-   *  · 光晕：从 0.55 倍扩散到 2 倍并淡出，像一圈金色气浪推开；
-   *  · 扫光：一道斜向白光从卡片左侧扫到右侧。
+   *  ① 散开（0~0.42s）  —— 卡片里的徽章隐去，18 颗粒子从它的位置向外炸开；
+   *  ② 汇聚（0.42~0.94s）—— 粒子拖着金光飞向**屏幕中心**并收拢；
+   *  ③ 点亮（0.9s~）    —— 中心炸出一枚大勋章，光晕扩散 + 光环呼吸，闪两次；
+   *  ④ 星芒（1.5s~）    —— 粒子再次向外飞散，像光芒迸射后消散；
+   *  ⑤ 归位（1.95~2.5s）—— 大勋章缩小飞回它原来的卡片位置，随后卡片里的徽章恢复显示。
    *
-   * 先把初值写进去、下一帧再动，保证动画一定会被触发。
+   * 时间轴全部用 `UIContext.animateTo` 的 delay 排布（官方《使用动画》的显式动画），
+   * 同一条属性上的相邻动画首尾相接，靠 delay 错开而不是嵌套回调，读起来更直观。
    */
   private playUnlockAnimation(id: string): void {
     const cell: BadgeCell | undefined = this.cellById.get(id);
     if (cell === undefined) {
       return;
     }
-    // 先把初值写进去（下一帧再动，保证动画一定被触发）
+    // 起点：徽章图标中心（窗口坐标 → 浮层坐标）；终点：屏幕中心偏上一点（避开底部页签栏）
+    const area: number[] | undefined = this.iconAreas.get(id);
+    const originX: number = area === undefined ? this.rootWidth / 2 : area[0] - this.rootGlobalX;
+    const originY: number = area === undefined ? this.rootHeight / 2 : area[1] - this.rootGlobalY;
+    const centerX: number = this.rootWidth / 2;
+    const centerY: number = this.rootHeight / 2 - 48;
+
     cell.celebrating = true;
-    cell.iconScale = 0.9;
-    cell.iconLift = 0;
-    cell.iconSpin = 0;
-    cell.glowScale = 0.55;
-    cell.glowOpacity = 0.9;
     cell.shineX = -140;
+    this.heroIcon = cell.icon;
+    this.heroX = originX;
+    this.heroY = originY;
+    this.heroScale = 0.2;
+    this.heroOpacity = 0;
+    this.heroGlowScale = 0.4;
+    this.heroGlowOpacity = 0;
+    for (const p of this.particles) {
+      p.x = originX;
+      p.y = originY;
+      p.opacity = 0;
+      p.scale = 1;
+    }
     hilog.info(DOMAIN, TAG, 'celebration start: %{public}s', id);
+
     setTimeout(() => {
       const ui: UIContext = this.getUIContext();
-      // 主戏：浮起 → 转圈 → 落回
-      ui.keyframeAnimateTo({}, [
-        {
-          duration: 380,
-          curve: curves.springMotion(0.45, 0.8),
-          event: () => {
-            cell.iconLift = -30;
-            cell.iconScale = 1.24;
-          }
-        },
-        {
-          duration: 620,
-          curve: Curve.Linear,
-          event: () => {
-            cell.iconSpin = 360;
-          }
-        },
-        {
-          duration: 460,
-          curve: curves.springMotion(0.4, 0.55),
-          event: () => {
-            cell.iconLift = 0;
-            cell.iconScale = 1.0;
-          }
-        }
-      ]);
-      // 光晕扩散 + 淡出
-      ui.animateTo({ duration: 1000, curve: curves.springMotion(0.55, 0.85) }, () => {
-        cell.glowScale = 2.0;
-        cell.glowOpacity = 0;
+      const count: number = this.particles.length;
+      for (let i = 0; i < count; i++) {
+        const p: CelebrationParticle = this.particles[i];
+        const angle: number = (i / count) * Math.PI * 2 + (i % 3) * 0.35;
+        const scatterDist: number = 64 + (i % 6) * 24;
+        // ① 散开
+        ui.animateTo({ duration: 380, delay: i * 10, curve: Curve.EaseOut }, () => {
+          p.x = originX + Math.cos(angle) * scatterDist;
+          p.y = originY + Math.sin(angle) * scatterDist;
+          p.opacity = 1;
+          p.scale = 1.1;
+        });
+        // ② 汇聚到屏幕中心
+        ui.animateTo({ duration: 520, delay: 420 + i * 10, curve: Curve.EaseInOut }, () => {
+          p.x = centerX + ((i % 4) - 1.5) * 7;
+          p.y = centerY + ((i % 3) - 1) * 7;
+          p.opacity = 0.3;
+          p.scale = 0.7;
+        });
+        // ④ 星芒：再次向外飞散并消散
+        ui.animateTo({ duration: 460, delay: 1500 + i * 16, curve: Curve.EaseOut }, () => {
+          p.x = centerX + Math.cos(angle) * (110 + (i % 5) * 22);
+          p.y = centerY + Math.sin(angle) * (110 + (i % 5) * 22);
+          p.opacity = 0;
+          p.scale = 0.4;
+        });
+      }
+      // ③ 大勋章在中心点亮
+      ui.animateTo({ duration: 420, delay: 900, curve: curves.springMotion(0.45, 0.62) }, () => {
+        this.heroOpacity = 1;
+        this.heroScale = 1.0;
       });
-      // 扫光（延迟一点起跑，跟在浮起后面）
-      ui.animateTo({ duration: 760, delay: 140, curve: Curve.EaseOut }, () => {
+      // 光晕爆发
+      ui.animateTo({ duration: 700, delay: 900, curve: Curve.EaseOut }, () => {
+        this.heroGlowOpacity = 0.95;
+        this.heroGlowScale = 1.5;
+      });
+      // 闪闪发光：光晕呼吸两次
+      ui.animateTo({ duration: 300, delay: 1600, curve: Curve.EaseInOut }, () => {
+        this.heroGlowOpacity = 0.3;
+        this.heroGlowScale = 1.15;
+      });
+      ui.animateTo({ duration: 300, delay: 1900, curve: Curve.EaseInOut }, () => {
+        this.heroGlowOpacity = 0.9;
+        this.heroGlowScale = 1.4;
+      });
+      ui.animateTo({ duration: 300, delay: 2220, curve: Curve.EaseInOut }, () => {
+        this.heroGlowOpacity = 0;
+        this.heroGlowScale = 1.0;
+      });
+      // ⑤ 飞回原来的卡片位置，并同步缩小到与卡片里那枚一样大
+      ui.animateTo({ duration: 520, delay: 1980, curve: curves.springMotion(0.42, 0.82) }, () => {
+        this.heroX = originX;
+        this.heroY = originY;
+        this.heroScale = 0.34;
+        this.heroOpacity = 0.95;
+      });
+      // 卡片扫光
+      ui.animateTo({ duration: 700, delay: 1980, curve: Curve.EaseOut }, () => {
         cell.shineX = 150;
       });
     }, 40);
+
+    // 收尾：隐藏浮层、恢复卡片里的徽章
+    setTimeout(() => {
+      this.finishCelebration(id);
+    }, 2600);
+  }
+
+  private finishCelebration(id: string): void {
+    const cell: BadgeCell | undefined = this.cellById.get(id);
+    if (cell !== undefined) {
+      cell.celebrating = false;
+      cell.shineX = -140;
+    }
+    this.heroOpacity = 0;
+    for (const p of this.particles) {
+      p.opacity = 0;
+    }
   }
 
   /** 首次进入本页时淡入 + 轻微上浮，让页签切换不再"生硬地换一整屏" */
@@ -376,7 +468,12 @@ export struct StatsPage {
           // key 用稳定的 id 即可：卡片内容由 BadgeCard 读 @ObservedV2 的 @Trace 字段驱动刷新，
           // 不依赖 ForEach 的 diff（详见 BadgeCell 的注释）
           ForEach(this.cells, (cell: BadgeCell, index: number) => {
-            BadgeCard({ cell: cell, index: index, entered: this.entered })
+            BadgeCard({
+              cell: cell,
+              index: index,
+              entered: this.entered,
+              onIconArea: this.onIconArea
+            })
           }, (cell: BadgeCell) => cell.id)
         }
         .width('100%')
@@ -405,13 +502,74 @@ export struct StatsPage {
         })
         .hitTestBehavior(HitTestMode.None)
         .position({ x: 0, y: 0 })
+
+      // 成就庆祝浮层：粒子散开 → 屏幕中心重组 → 闪耀 → 飞回原位
+      if (this.celebratingId.length > 0) {
+        this.celebrationStage()
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(Palette.bg)
+    // 记录根容器尺寸与窗口位置：浮层要按它把"图标的窗口坐标"换算成浮层坐标
+    .onAreaChange((oldArea: Area, newArea: Area) => {
+      this.rootWidth = Number(newArea.width);
+      this.rootHeight = Number(newArea.height);
+      this.rootGlobalX = Number(newArea.globalPosition.x);
+      this.rootGlobalY = Number(newArea.globalPosition.y);
+    })
     .opacity(this.entered ? 1 : 0)
     .translate({ y: this.entered ? 0 : 14 })
     .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
+  }
+
+  /**
+   * 庆祝浮层：整屏铺开、不拦截触摸。
+   * 18 颗粒子 + 中心的大勋章，全部由 @Trace 状态驱动。
+   */
+  @Builder
+  celebrationStage() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      ForEach(this.particles, (p: CelebrationParticle, index: number) => {
+        CelebrationParticleView({ dot: p })
+      }, (p: CelebrationParticle, index: number) => `particle_${index}`)
+
+      Stack({ alignContent: Alignment.Center }) {
+        // 金色光晕（会呼吸）
+        Column()
+          .width(150)
+          .height(150)
+          .borderRadius(75)
+          .radialGradient({
+            center: ['50%', '50%'],
+            radius: '50%',
+            colors: [['#80F5C542', 0.0], ['#40F5C542', 0.45], ['#00F5C542', 1.0]]
+          })
+          .opacity(this.heroGlowOpacity)
+          .scale({ x: this.heroGlowScale, y: this.heroGlowScale })
+
+        // 外圈光环
+        Column()
+          .width(104)
+          .height(104)
+          .borderRadius(52)
+          .border({ width: 2, color: '#CCF5C542' })
+          .opacity(this.heroGlowOpacity)
+          .scale({ x: this.heroGlowScale, y: this.heroGlowScale })
+
+        // 大勋章本体
+        Text(this.heroIcon)
+          .fontSize(76)
+      }
+      .width(150)
+      .height(150)
+      .position({ x: this.heroX - 75, y: this.heroY - 75 })
+      .scale({ x: this.heroScale, y: this.heroScale })
+      .opacity(this.heroOpacity)
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.None)
   }
 
   @Builder

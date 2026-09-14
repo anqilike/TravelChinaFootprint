@@ -21,15 +21,12 @@ export class BadgeCell {
   @Trace target: number = 1;
   @Trace unlocked: boolean = false;
 
-  /** 以下为点亮动画参数，只有"正在庆祝"的那一枚会被改动 */
+  /**
+   * 是否正在庆祝。
+   * 庆祝时卡片里的静态徽章会隐藏（它已经"散成粒子"飞到屏幕中心去了），
+   * 大勋章飞回原位后才恢复显示。
+   */
   @Trace celebrating: boolean = false;
-  /** 图标缩放 / 浮起高度 / 绕 Y 轴旋转角度 */
-  @Trace iconScale: number = 1;
-  @Trace iconLift: number = 0;
-  @Trace iconSpin: number = 0;
-  /** 金色光晕的扩散与透明度 */
-  @Trace glowScale: number = 1;
-  @Trace glowOpacity: number = 0;
   /** 卡片扫光的水平位移 */
   @Trace shineX: number = -140;
 

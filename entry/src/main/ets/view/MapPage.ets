@@ -791,6 +791,17 @@ export struct MapPage {
   }
 
   /**
+   * 点在地图名称上：直接按"这个标签所在的位置"走同一个命中逻辑。
+   *
+   *  · 城市 / 省会标签 → 命中的必然是它自己（名字就画在它的圆点下方）；
+   *  · 省名标签 → 命中该位置最近的城市（省名一般画在省会位置）；
+   *  · 国家 / 地区名 → 附近没有可点亮城市时给一次提示，不会静默失败。
+   */
+  private onLabelTap(item: CityLabel): void {
+    this.pickCityAtScreen(item.x, item.y);
+  }
+
+  /**
    * 短暂提示：地图上这类"操作反馈"不需要常驻，
    * 2.6 秒后自动消失，避免像标签一样一直糊在屏幕上。
    */
@@ -1093,11 +1104,19 @@ export struct MapPage {
               offsetX: 0,
               offsetY: 0
             })
+            // 关键：文字也必须声明不参与命中。
+            // HitTestMode.None 的语义是"自身不响应，子节点和兄弟节点继续"——
+            // 之前只给外面的 Row 设了 None，里面的 Text 仍然会被命中，
+            // 于是点在名字上时这个节点就把触摸吃掉了，地图层根本收不到，
+            // 表现就是"点名字没反应、必须点在空地或圆点上"。现在整棵标签子树都不拦触摸。
+            .hitTestBehavior(HitTestMode.None)
         }
         .width(item.w)
         .height(item.h)
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
+        // 整块标签都不参与命中：点名字的判定交给地图层的"最近城市"逻辑，
+        // 这样"点名字能点亮"和"从名字上开始拖动地图"两件事可以同时成立。
         .hitTestBehavior(HitTestMode.None)
         .position({ x: item.x - item.w / 2, y: item.y - item.h / 2 })
       }, (item: CityLabel) =>

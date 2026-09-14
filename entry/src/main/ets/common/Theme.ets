@@ -102,7 +102,7 @@ export class MapDefaults {
    * 手指落点根本压不进去——这就是"一个城市要点好几次才弹页面"的原因。
    * 44vp ≈ 一根手指的落点半径，也是系统对最小可点区域的经验值。
    */
-  static readonly tapRadiusVp: number = 44;
+  static readonly tapRadiusVp: number = 56;
   /**
    * 自己识别"点按"的位移容差（vp）。
    * 手指点一下通常会抖动几像素，地图 SDK 会把它当成拖拽从而**不回调 mapClick**——

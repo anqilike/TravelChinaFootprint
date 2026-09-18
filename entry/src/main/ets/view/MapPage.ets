@@ -9,6 +9,8 @@ import { CityRepository } from '../repository/CityRepository';
 import { FootprintListener, footprintStore } from '../viewmodel/FootprintStore';
 import { LocationService } from '../service/LocationService';
 import { Dimens, MapDefaults, MapLabelStyle, Motion, Palette } from '../common/Theme';
+import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
+import { AchievementEngine } from '../viewmodel/AchievementEngine';
 import { WindowService } from '../common/WindowService';
 
 const DOMAIN: number = 0x0000;
@@ -171,6 +173,8 @@ export struct MapPage {
   private lastPickAt: number = 0;
   /** TODO 临时诊断：被挤掉的省名（地图 SDK 日志刷爆配额，hilog 会被丢弃，只能画在屏幕上） */
   @Local debugDropped: string = '';
+  /** 当前选中的点亮配色编号（0~7，在「我的 → 点亮颜色」里切换） */
+  @Local litColorIndex: number = 0;
   /**
    * 由父组件传入：当前是否停留在本页。
    * 点位闪烁只在页面可见时跑，切走就停（省电），切回来接着闪。
@@ -180,6 +184,7 @@ export struct MapPage {
   @Monitor('active')
   onActiveChanged(): void {
     if (this.active) {
+      this.loadLitColor();
       this.startBlinking();
     } else {
       this.stopBlinking();
@@ -227,7 +232,63 @@ export struct MapPage {
       this.setupMap(controller);
     };
     footprintStore.subscribe(this.listener);
+    this.loadLitColor();
     this.startBlinking();
+  }
+
+  /**
+   * 读取"点亮配色"并应用到地图。
+   * 因为点位图标是预先烘好的 8 套 PNG，换色时要把所有已点亮 marker 的图标重下一遍。
+   */
+  private async loadLitColor(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const index: number = await AchievementEngine.getLitColorIndex(context);
+      if (index === this.litColorIndex) {
+        return;
+      }
+      this.litColorIndex = index;
+      this.applyLitColor();
+    } catch (err) {
+      this.litColorIndex = 0;
+    }
+  }
+
+  /** 把所有已点亮城市的图标换成当前配色，并刷新城市名颜色 */
+  private applyLitColor(): void {
+    const icon: Resource = this.litIcon(this.litColorIndex);
+    this.markers.forEach((marker: map.Marker, code: string) => {
+      if (footprintStore.isVisited(code)) {
+        marker.setIcon(icon);
+      }
+    });
+    this.updateCityLabels();
+  }
+
+  /** 配色编号 → 点位图标资源（预烘的 8 套 PNG） */
+  private litIcon(index: number): Resource {
+    if (index === 1) {
+      return $r('app.media.marker_lit_1');
+    }
+    if (index === 2) {
+      return $r('app.media.marker_lit_2');
+    }
+    if (index === 3) {
+      return $r('app.media.marker_lit_3');
+    }
+    if (index === 4) {
+      return $r('app.media.marker_lit_4');
+    }
+    if (index === 5) {
+      return $r('app.media.marker_lit_5');
+    }
+    if (index === 6) {
+      return $r('app.media.marker_lit_6');
+    }
+    if (index === 7) {
+      return $r('app.media.marker_lit_7');
+    }
+    return $r('app.media.marker_lit_0');
   }
 
   aboutToDisappear(): void {
@@ -712,7 +773,7 @@ export struct MapPage {
     const alpha: number = visited ? 1.0 : this.unlitAlpha();
     const options: mapCommon.MarkerOptions = {
       position: { latitude: city.lat, longitude: city.lng },
-      icon: visited ? $r('app.media.marker_visited') : $r('app.media.marker_dim'),
+      icon: visited ? this.litIcon(this.litColorIndex) : $r('app.media.marker_dim'),
       alpha: alpha,
       anchorU: 0.5,
       anchorV: 0.5,
@@ -734,7 +795,7 @@ export struct MapPage {
     if (marker === undefined) {
       return;
     }
-    marker.setIcon(visited ? $r('app.media.marker_visited') : $r('app.media.marker_dim'))
+    marker.setIcon(visited ? this.litIcon(this.litColorIndex) : $r('app.media.marker_dim'))
       .then(() => {
         this.setMarkerAlpha(code, visited ? 1.0 : this.unlitAlpha());
       })
@@ -1189,7 +1250,8 @@ export struct MapPage {
             .fontSize(item.kind === 'province' ? PROVINCE_FONT_SIZE :
               (item.kind === 'country' ? COUNTRY_FONT_SIZE : CITY_FONT_SIZE))
             // 未点亮统一用底图标签色；只有"已点亮"用金色，这是本 App 的语义色（图例里有说明）
-            .fontColor(item.visited ? MapLabelStyle.visitedText : MapLabelStyle.labelText)
+            // 已点亮城市名用"当前配色对应的深色版"，保证压在浅色底图上依然清晰
+            .fontColor(item.visited ? LitColors.get(this.litColorIndex).label : MapLabelStyle.labelText)
             // 字重：实测底图国名"蒙古"字形宽 39.5px/字、平均笔画 9.3px（≈0.24em）；
             // Bold 只有 ≈0.18em，所以再提一档用 Bolder，让笔画密度和底图一致。
             // 省名 / 省会名 / 地级市名三层统一用同一套字号与字重。

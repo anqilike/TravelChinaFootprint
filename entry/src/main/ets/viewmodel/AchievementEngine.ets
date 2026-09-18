@@ -9,6 +9,7 @@ const TAG: string = 'AchievementEngine';
 const SEEN_STORE: string = 'achievement_store';
 const SEEN_KEY: string = 'seen_ids';
 const EFFECT_KEY: string = 'effect_index';
+const LIT_COLOR_KEY: string = 'lit_color_index';
 
 /** 成就徽章 */
 export interface AchievementItem {
@@ -63,6 +64,33 @@ export class AchievementEngine {
       await store.flush();
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'setEffectIndex failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
+  /** 读取选中的点亮配色编号（0~7） */
+  static async getLitColorIndex(context: common.UIAbilityContext): Promise<number> {
+    try {
+      const store: preferences.Preferences | undefined = await AchievementEngine.ensureStore(context);
+      if (store === undefined) {
+        return 0;
+      }
+      return store.getSync(LIT_COLOR_KEY, 0) as number;
+    } catch (err) {
+      return 0;
+    }
+  }
+
+  /** 记住选中的点亮配色 */
+  static async setLitColorIndex(context: common.UIAbilityContext, index: number): Promise<void> {
+    try {
+      const store: preferences.Preferences | undefined = await AchievementEngine.ensureStore(context);
+      if (store === undefined) {
+        return;
+      }
+      await store.put(LIT_COLOR_KEY, index);
+      await store.flush();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'setLitColorIndex failed: %{public}s', JSON.stringify(err));
     }
   }
 

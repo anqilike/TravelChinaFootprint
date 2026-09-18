@@ -52,7 +52,7 @@ class VisitRecordCloud extends cloudDatabase.DatabaseObject {
  *  3. 应用侧无需新增权限（云数据库只需要 ohos.permission.INTERNET，已在 module.json5 声明）。
  *
  * 未开通时所有调用都会抛错（典型错误码 1008230002 Schema config error），
- * 这里统一转成可读文案，界面上提示"云同步未开通"，不影响本地功能。
+ * 这里统一转成面向用户的友好文案（AGC 细节只写 hilog），不影响本地功能。
  */
 export class CloudSyncService {
   private static zone: cloudDatabase.DatabaseZone | undefined = undefined;
@@ -136,7 +136,8 @@ export class CloudSyncService {
   private static friendlyError(err: Object): string {
     const code: number = (err as Record<string, Object>)['code'] as number;
     if (code === 1008230002) {
-      return '云同步还没开通：请先在 AGC 创建对象类型 visit_record';
+      // AGC 侧尚未建好对象类型，用户无需知道内情
+      return '云同步即将开放，敬请期待';
     }
     if (code === 1008230001) {
       return '网络异常，请检查网络后重试';

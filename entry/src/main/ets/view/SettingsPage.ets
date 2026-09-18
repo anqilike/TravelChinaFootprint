@@ -18,6 +18,7 @@ import { AchievementEngine } from '../viewmodel/AchievementEngine';
 import { AchievementEffects, EffectInfo } from '../viewmodel/AchievementEffects';
 import { BadgeCell } from '../viewmodel/BadgeCell';
 import { BadgeCard } from './BadgeCard';
+import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'SettingsPage';
@@ -50,6 +51,8 @@ export struct SettingsPage {
   @Local entered: boolean = false;
   /** 当前选中的徽章点亮动画编号 */
   @Local effectIndex: number = 0;
+  /** 当前选中的点亮配色编号 */
+  @Local litColorIndex: number = 0;
   /** 试播用的演示徽章（与统计页里的徽章共用同一套渲染与动画） */
   private demoCell: BadgeCell = new BadgeCell('demo', '演示徽章', '点亮时的动画效果', '🏅');
 
@@ -88,6 +91,7 @@ export struct SettingsPage {
     this.demoCell.progress = 1;
     this.demoCell.target = 1;
     this.loadEffectIndex();
+    this.loadLitColor();
   }
 
   private async loadEffectIndex(): Promise<void> {
@@ -97,6 +101,22 @@ export struct SettingsPage {
     } catch (err) {
       this.effectIndex = 0;
     }
+  }
+
+  private async loadLitColor(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      this.litColorIndex = await AchievementEngine.getLitColorIndex(context);
+    } catch (err) {
+      this.litColorIndex = 0;
+    }
+  }
+
+  /** 选中某个配色并落盘；回到地图页时会自动换色 */
+  private pickLitColor(index: number): void {
+    this.litColorIndex = index;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    AchievementEngine.setLitColorIndex(context, index);
   }
 
   private currentEffect(): EffectInfo {
@@ -140,7 +160,7 @@ export struct SettingsPage {
 
   /**
    * 云同步：先推本地 → 再拉云端 → 按 updatedAt 取新合并回本地。
-   * 未在 AGC 开通云数据库时会给出明确提示，不影响本地使用。
+   * 未开通云同步时给出友好提示（AGC 细节只进日志），不影响本地使用。
    */
   private async doSync(): Promise<void> {
     if (this.syncing) {
@@ -221,8 +241,8 @@ export struct SettingsPage {
                 .fontSize(15)
                 .fontColor(Palette.text)
               Text(this.loggedIn
-                ? `账号标识 ${this.accountShortId} · 足迹可同步到云端`
-                : '登录后可把足迹同步到云端，换机不丢；不登录也能正常使用')
+                ? `账号标识 ${this.accountShortId} · 已连接华为账号`
+                : '登录后即可使用云同步（即将开放）；不登录也能正常使用')
                 .fontSize(11)
                 .fontColor(Palette.textDim)
                 .margin({ top: 4 })
@@ -277,8 +297,7 @@ export struct SettingsPage {
                 .fontColor(Palette.text)
               Text(this.syncStatus.length > 0 ? this.syncStatus : this.lastSyncText)
                 .fontSize(11)
-                .fontColor(this.syncStatus.indexOf('失败') >= 0 || this.syncStatus.indexOf('未开通') >= 0
-                  ? Palette.danger : Palette.textDim)
+                .fontColor(this.syncStatus.indexOf('失败') >= 0 ? Palette.danger : Palette.textDim)
                 .margin({ top: 4 })
                 .maxLines(2)
             }
@@ -364,6 +383,61 @@ export struct SettingsPage {
           this.switchRow('色盲友好模式（增加描边辅助）', this.colorBlindSafe, (value: boolean) => {
             this.colorBlindSafe = value;
           })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+        .borderRadius(Dimens.cardRadius)
+        .backgroundColor('#26070B14')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR, { colorMode: ThemeColorMode.DARK })
+        .border({ width: 0.5, color: '#14FFFFFF' })
+
+        // 点亮颜色：8 种配色，点选即换（点名 + 城市名一起换色系）
+        Text('点亮颜色')
+          .fontSize(13)
+          .fontColor(Palette.textDim)
+          .width('100%')
+          .margin({ top: 22, bottom: 8 })
+
+        Column() {
+          Row() {
+            Text(`当前：${LitColors.get(this.litColorIndex).name}`)
+              .fontSize(15)
+              .fontColor(Palette.text)
+              .fontWeight(FontWeight.Medium)
+              .layoutWeight(1)
+            // 示例文字：用当前配色的"深色版"，就是地图上城市名的颜色
+            Text('已点亮')
+              .fontSize(13)
+              .fontColor(LitColors.get(this.litColorIndex).label)
+              .fontWeight(FontWeight.Medium)
+          }
+          .width('100%')
+          .padding({ top: 14, bottom: 10 })
+
+          // 8 个色块：选中的带白色描边
+          // 注意 key 里带上"是否选中"：ForEach 只按 key 做 diff，
+          // 只用序号的话切换选中态时高亮不会刷新。
+          Row({ space: 10 }) {
+            ForEach(LitColors.presets(), (preset: LitColorPreset, index: number) => {
+              Circle()
+                .width(30)
+                .height(30)
+                .fill(preset.dot)
+                .stroke(this.litColorIndex === index ? '#FFFFFFFF' : '#33FFFFFF')
+                .strokeWidth(this.litColorIndex === index ? 2.5 : 1)
+                .onClick(() => {
+                  this.pickLitColor(index);
+                })
+            }, (preset: LitColorPreset, index: number) =>
+              `lit_${index}_${this.litColorIndex === index ? 1 : 0}`)
+          }
+          .width('100%')
+          .padding({ bottom: 12 })
+
+          Text('地图上已点亮城市的圆点用上面的颜色，城市名用同色系的深色版本（保证压在浅色底图上也能看清）。')
+            .fontSize(11)
+            .fontColor(Palette.textDim)
+            .margin({ bottom: 14 })
         }
         .width('100%')
         .padding({ left: 16, right: 16 })

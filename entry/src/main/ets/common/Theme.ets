@@ -125,7 +125,7 @@ export class MapDefaults {
   static readonly blinkMinPeriodMs: number = 900;
   static readonly blinkPeriodRangeMs: number = 1000;
   /** 闪烁时的透明度区间：暗到亮 */
-  static readonly blinkDimAlpha: number = 0.4;
+  static readonly blinkDimAlpha: number = 0.25;
   static readonly blinkBrightAlpha: number = 1.0;
   /** 刷新间隔（毫秒）：80ms ≈ 12.5fps，兼顾顺滑与耗电 */
   static readonly blinkIntervalMs: number = 80;

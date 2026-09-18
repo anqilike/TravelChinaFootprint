@@ -12,7 +12,7 @@ import { Dimens, MapDefaults, MapLabelStyle, Motion, Palette } from '../common/T
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 import { AchievementEngine } from '../viewmodel/AchievementEngine';
 import { FREE_QUOTA, membershipState } from '../service/MembershipService';
-import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
 import { PaywallSheet } from './PaywallSheet';
 import { WindowService } from '../common/WindowService';
 
@@ -178,6 +178,11 @@ export struct MapPage {
   @Local debugDropped: string = '';
   /** 当前选中的点亮配色编号（0~7，在「我的 → 点亮颜色」里切换） */
   @Local litColorIndex: number = 0;
+  /** 购买面板是否展示（由 paywallStore 通知，本页只负责喂给 bindSheet） */
+  @Local paywallShown: boolean = false;
+  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
+    this.paywallShown = visible;
+  };
   /**
    * 由父组件传入：当前是否停留在本页。
    * 点位闪烁只在页面可见时跑，切走就停（省电），切回来接着闪。
@@ -215,6 +220,7 @@ export struct MapPage {
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    paywallStore.subscribe(this.paywallListener);
     this.mapOptions = {
       position: {
         target: { latitude: MapDefaults.centerLat, longitude: MapDefaults.centerLng },
@@ -296,6 +302,7 @@ export struct MapPage {
 
   aboutToDisappear(): void {
     footprintStore.unsubscribe(this.listener);
+    paywallStore.unsubscribe(this.paywallListener);
     this.stopBlinking();
   }
 
@@ -1215,6 +1222,23 @@ export struct MapPage {
     return left > 0 ? left : 0;
   }
 
+  /**
+   * 顶部是否展示"开通会员"入口。
+   * 只有"免费额度用完 + 还没开通"时才出现，已开通的用户看不到任何付费信息。
+   */
+  private showQuotaEntry(): boolean {
+    return !membershipState.member && this.quotaLeft() === 0;
+  }
+
+  /**
+   * 图例距离顶部的偏移。
+   * 顶部胶囊下面多出"开通会员"入口时，图例要跟着下移，否则两者会叠在一起
+   * （图例是绝对定位的兄弟节点，不会自动避开胶囊）。
+   */
+  private legendTopOffset(): number {
+    return this.showQuotaEntry() ? 126 : 80;
+  }
+
   private quotaHint(): string {
     const left: number = this.quotaLeft();
     if (left > 0) {
@@ -1412,7 +1436,7 @@ export struct MapPage {
         // 免费名额用完后，在地图顶部常驻一个开通入口。
         // 放在进度胶囊**下面**而不是塞进胶囊里：付费信息不该占用看数据的位置，
         // 而且只在"额度用完 + 未开通"时出现，普通用户不会被打扰。
-        if (!membershipState.member && this.quotaLeft() === 0) {
+        if (this.showQuotaEntry()) {
           Button() {
             Row() {
               Text('★')
@@ -1445,11 +1469,12 @@ export struct MapPage {
       .animation({ duration: 380, curve: curves.springMotion(0.42, 0.9) })
       // 购买面板单独挂在这个节点上：ArkUI 的一个组件只能绑一个 bindSheet，
       // 根节点已经被"城市卡片"占用，所以另找一个稳定存在的节点承载。
-      .bindSheet(paywallStore.visible, this.paywallSheet(), {
+      .bindSheet(this.paywallShown, this.paywallSheet(), {
         height: SheetSize.MEDIUM,
         dragBar: true,
         backgroundColor: Palette.surface,
         onDisappear: () => {
+          this.paywallShown = false;
           paywallStore.close();
         }
       })
@@ -1504,7 +1529,7 @@ export struct MapPage {
       .backgroundColor('#990C1320')
       .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: ThemeColorMode.DARK })
       .border({ width: 0.5, color: '#1FFFFFFF' })
-      .position({ left: 14, top: this.safeTop + 80 })
+      .position({ left: 14, top: this.safeTop + this.legendTopOffset() })
       .opacity(this.chromeIn ? 1 : 0)
       .translate({ y: this.chromeIn ? 0 : -8 })
       .animation({ duration: 420, curve: curves.springMotion(0.42, 0.9) })

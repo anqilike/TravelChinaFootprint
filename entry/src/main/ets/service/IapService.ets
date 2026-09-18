@@ -254,8 +254,10 @@ export class IapService {
     if (code === iap.IAPErrorCode.PRODUCT_OWNED) {
       return '该账号已经购买过，正在为你恢复权益';
     }
-    if (code === iap.IAPErrorCode.PRODUCT_TERRITORY_NOT_SUPPORTED
-      || code === iap.IAPErrorCode.ACCOUNT_NOT_LOGGED_IN) {
+    if (code === iap.IAPErrorCode.ACCOUNT_NOT_LOGGED_IN) {
+      return '请先在「设置 → 华为账号」登录后再开通';
+    }
+    if (code === iap.IAPErrorCode.PRODUCT_TERRITORY_NOT_SUPPORTED) {
       return '当前华为账号的服务地暂不支持应用内购买';
     }
     if (code === 801) {

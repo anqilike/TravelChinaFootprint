@@ -7,6 +7,7 @@ const TAG: string = 'MembershipService';
 const STORE_NAME: string = 'membership_store';
 const KEY_MEMBER: string = 'is_member';
 const KEY_FREE_CITIES: string = 'free_cities';
+const KEY_LEGACY_CITIES: string = 'legacy_cities';
 const KEY_ORDER_ID: string = 'order_id';
 const KEY_SANDBOX: string = 'sandbox';
 const KEY_GRANT_TIME: string = 'grant_time';
@@ -41,13 +42,20 @@ export const membershipState: MembershipState = new MembershipState();
  *     这样"取消点亮再重新点亮同一座城市"不会重复扣额度，
  *     而"点亮→取消→换一座城市点亮"也不能绕过限制；
  *  3. 已经点亮的城市永久保留：老用户（升级前就点亮了 20 座）不会被回滚，
- *     只是"再点亮新城市"时才需要开通会员。升级时会把这批用户的前 5 座城市
- *     记为已用额度（ensureMigration），保证规则一致。
+ *     只是"再点亮新城市"时才需要开通会员。升级时（ensureMigration）会把这批
+ *     存量城市全部记为 legacy：其中前 5 座算作"已用免费额度"，其余的城市
+ *     虽然计入免费额度之外，但**永远允许重新点亮**（取消后还能再点回来）。
  */
 export class MembershipService {
   private static store: preferences.Preferences | undefined = undefined;
   private static member: boolean = false;
   private static freeCities: string[] = [];
+  /**
+   * 升级到付费版之前就已经点亮的城市（存量数据）。
+   * 这些城市永远可以重新点亮、不消耗免费额度：
+   * 否则老用户一旦手滑取消点亮某座城市，就再也不能点亮它——那是很糟糕的体验。
+   */
+  private static legacyCities: string[] = [];
   private static orderId: string = '';
   private static sandbox: boolean = false;
   private static grantTime: number = 0;
@@ -67,6 +75,8 @@ export class MembershipService {
       MembershipService.grantTime = store.getSync(KEY_GRANT_TIME, 0) as number;
       const raw: string = store.getSync(KEY_FREE_CITIES, '') as string;
       MembershipService.freeCities = MembershipService.parseList(raw);
+      const legacy: string = store.getSync(KEY_LEGACY_CITIES, '') as string;
+      MembershipService.legacyCities = MembershipService.parseList(legacy);
       MembershipService.publish();
       hilog.info(DOMAIN, TAG, 'membership restored: member=%{public}d freeUsed=%{public}d',
         MembershipService.member ? 1 : 0, MembershipService.freeCities.length);
@@ -99,6 +109,24 @@ export class MembershipService {
   }
 
   /**
+   * 点亮这座城市是否会消耗一个免费名额。
+   * 会员、已经用过额度的城市、以及升级前就存在的老数据都不消耗。
+   * 批量点亮时用它做"实时扣减"，否则同一批里前几座刚用掉的名额不会被算进去。
+   */
+  static usesFreeSlot(code: string): boolean {
+    if (MembershipService.member) {
+      return false;
+    }
+    if (MembershipService.freeCities.includes(code)) {
+      return false;
+    }
+    if (MembershipService.legacyCities.includes(code)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * 这座城市的"点亮"是否需要先开通会员。
    * 已经点亮的城市（含老用户存量数据）永远允许重新点亮，不消耗新额度。
    */
@@ -107,6 +135,9 @@ export class MembershipService {
       return true;
     }
     if (MembershipService.freeCities.includes(code)) {
+      return true;
+    }
+    if (MembershipService.legacyCities.includes(code)) {
       return true;
     }
     return MembershipService.freeCities.length < FREE_QUOTA;
@@ -143,17 +174,20 @@ export class MembershipService {
         return;
       }
       const next: string[] = MembershipService.freeCities.slice();
+      const legacy: string[] = [];
       for (const code of visitedCodes) {
-        if (next.length >= FREE_QUOTA) {
-          break;
+        if (!legacy.includes(code)) {
+          legacy.push(code);
         }
-        if (!next.includes(code)) {
+        if (next.length < FREE_QUOTA && !next.includes(code)) {
           next.push(code);
         }
       }
       MembershipService.freeCities = next;
+      MembershipService.legacyCities = legacy;
       await store.put(KEY_MIGRATED, true);
       await store.put(KEY_FREE_CITIES, JSON.stringify(next));
+      await store.put(KEY_LEGACY_CITIES, JSON.stringify(legacy));
       await store.flush();
       MembershipService.publish();
       hilog.info(DOMAIN, TAG, 'quota migrated, freeUsed=%{public}d', next.length);
@@ -198,6 +232,7 @@ export class MembershipService {
   static async resetForDebug(): Promise<void> {
     MembershipService.member = false;
     MembershipService.freeCities = [];
+    MembershipService.legacyCities = [];
     MembershipService.orderId = '';
     MembershipService.sandbox = false;
     MembershipService.grantTime = 0;
@@ -207,6 +242,7 @@ export class MembershipService {
     }
     await store.put(KEY_MEMBER, false);
     await store.put(KEY_FREE_CITIES, '');
+    await store.put(KEY_LEGACY_CITIES, '');
     await store.put(KEY_ORDER_ID, '');
     await store.put(KEY_SANDBOX, false);
     await store.put(KEY_GRANT_TIME, 0);

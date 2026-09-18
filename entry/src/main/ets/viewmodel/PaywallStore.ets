@@ -6,6 +6,9 @@ import { MembershipService } from '../service/MembershipService';
 const DOMAIN: number = 0x0000;
 const TAG: string = 'PaywallStore';
 
+/** 面板显隐的订阅者（页面用它同步自己的 @Local，再驱动 bindSheet） */
+export type PaywallVisibilityListener = (visible: boolean) => void;
+
 /**
  * 购买面板的状态与购买流程。
  *
@@ -44,6 +47,28 @@ export class PaywallStore {
   private context: common.UIAbilityContext | undefined = undefined;
   private envChecked: boolean = false;
   private productLoaded: boolean = false;
+  private listeners: PaywallVisibilityListener[] = [];
+
+  /**
+   * 订阅面板显隐。
+   *
+   * 为什么不直接让页面写 `.bindSheet(paywallStore.visible, ...)`：
+   * 实测这种"把外部状态对象的 @Trace 字段直接喂给 bindSheet 首参"的写法
+   * 会出现偶发不弹（同一段代码两次运行结果不一致）。页面各自用 @Local 承接、
+   * 由这里主动通知，行为是确定的——和 footprintStore 的增量通知一个思路。
+   */
+  subscribe(listener: PaywallVisibilityListener): void {
+    if (!this.listeners.includes(listener)) {
+      this.listeners.push(listener);
+    }
+  }
+
+  unsubscribe(listener: PaywallVisibilityListener): void {
+    const index: number = this.listeners.indexOf(listener);
+    if (index >= 0) {
+      this.listeners.splice(index, 1);
+    }
+  }
 
   /** App 启动时注入 UIAbilityContext */
   attach(context: common.UIAbilityContext): void {
@@ -54,12 +79,12 @@ export class PaywallStore {
   open(cityName: string): void {
     this.cityName = cityName;
     this.statusText = '';
-    this.visible = true;
+    this.setVisible(true);
     this.refreshProductInfo();
   }
 
   close(): void {
-    this.visible = false;
+    this.setVisible(false);
   }
 
   /** 手动"恢复购买"（在面板里点） */
@@ -109,16 +134,16 @@ export class PaywallStore {
         const restored: boolean = await this.restoreInternal(true);
         this.purchasing = false;
         if (restored) {
-          this.visible = false;
+          this.setVisible(false);
           return true;
         }
         return false;
       }
     await MembershipService.grant(outcome.orderId, outcome.sandbox);
     await IapService.finish(context, outcome.orderId, outcome.purchaseToken, outcome.productType);
-    this.sandbox = outcome.sandbox;
-    this.purchasing = false;
-    this.visible = false;
+      this.sandbox = outcome.sandbox;
+      this.purchasing = false;
+      this.setVisible(false);
     this.notifyPurchased();
     hilog.info(DOMAIN, TAG, 'purchase done, sandbox=%{public}d', outcome.sandbox ? 1 : 0);
     return true;
@@ -172,7 +197,7 @@ export class PaywallStore {
     await IapService.finish(context, order.orderId, order.purchaseToken, order.productType);
     if (!silent) {
       this.statusText = '';
-      this.visible = false;
+      this.setVisible(false);
     }
     this.notifyPurchased();
     hilog.info(DOMAIN, TAG, 'membership restored from store');
@@ -183,6 +208,14 @@ export class PaywallStore {
     const callback: (() => void) | undefined = this.onPurchased;
     if (callback !== undefined) {
       callback();
+    }
+  }
+
+  /** 统一改状态并通知页面，避免漏通知导致面板关不掉 / 弹不出 */
+  private setVisible(visible: boolean): void {
+    this.visible = visible;
+    for (const listener of this.listeners) {
+      listener(visible);
     }
   }
 }

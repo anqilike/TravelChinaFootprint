@@ -1,9 +1,10 @@
 import { curves, promptAction } from '@kit.ArkUI';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { LightBatchResult } from '../viewmodel/FootprintStore';
-import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
 import { PaywallSheet } from './PaywallSheet';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { WindowService } from '../common/WindowService';
@@ -27,11 +28,21 @@ export struct CityListPage {
   @Local safeBottom: number = 0;
   /** 入场动效标记：首次进入本页时由 false → true，配合 .animation 做淡入上浮 */
   @Local entered: boolean = false;
+  /** 购买面板是否展示（由 paywallStore 通知，本页只负责把状态喂给 bindSheet） */
+  @Local paywallShown: boolean = false;
+  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
+    this.paywallShown = visible;
+  };
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    paywallStore.subscribe(this.paywallListener);
     this.playEnter();
+  }
+
+  aboutToDisappear(): void {
+    paywallStore.unsubscribe(this.paywallListener);
   }
 
   /**
@@ -67,17 +78,24 @@ export struct CityListPage {
     this.submitting = true;
     try {
       const result: LightBatchResult = await footprintStore.lightUpBatch(this.selected);
-      if (result.lit > 0) {
-        promptAction.showToast({ message: `已点亮 ${result.lit} 座城市` });
-      }
       this.selected = [];
       this.batchMode = false;
       // 免费额度不够的部分：引导开通会员，开通后由页面的批量入口重新提交
       if (result.blocked > 0) {
         paywallStore.onPurchased = undefined;
         paywallStore.open('');
+        // 注意：这里**不能**用 Toast 汇报结果。
+        // 实测 Toast 的浮层会把刚刚打开的半模态顶掉（面板不显示），
+        // 所以把结果写进面板本身，信息还更完整。
+        paywallStore.statusText =
+          `已点亮 ${result.lit} 座，还有 ${result.blocked} 座需要开通后才能点亮`;
+        return;
+      }
+      if (result.lit > 0) {
+        promptAction.showToast({ message: `已点亮 ${result.lit} 座城市` });
       }
     } catch (err) {
+      hilog.error(0x0000, 'CityListPage', 'batch light failed: %{public}s', JSON.stringify(err));
       promptAction.showToast({ message: '批量点亮失败，请重试' });
     } finally {
       this.submitting = false;
@@ -345,6 +363,18 @@ export struct CityListPage {
         })
         .hitTestBehavior(HitTestMode.None)
         .position({ x: 0, y: 0 })
+        // 购买面板挂在这个"常驻叶子节点"上，而不是根 Stack：
+        // 批量点亮会大范围重建列表（根节点子树全变），挂在根节点上的半模态
+        // 实测会被这次重建顶掉（面板闪不出来）；挂在不参与列表重建的节点上才稳定。
+        .bindSheet(this.paywallShown, this.paywallSheet(), {
+          height: SheetSize.MEDIUM,
+          dragBar: true,
+          backgroundColor: Palette.surface,
+          onDisappear: () => {
+            this.paywallShown = false;
+            paywallStore.close();
+          }
+        })
     }
     .width('100%')
     .height('100%')
@@ -352,14 +382,6 @@ export struct CityListPage {
     .opacity(this.entered ? 1 : 0)
     .translate({ y: this.entered ? 0 : 14 })
     .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
-    .bindSheet(paywallStore.visible, this.paywallSheet(), {
-      height: SheetSize.MEDIUM,
-      dragBar: true,
-      backgroundColor: Palette.surface,
-      onDisappear: () => {
-        paywallStore.close();
-      }
-    })
   }
 
 }

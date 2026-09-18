@@ -21,7 +21,7 @@ import { BadgeCard } from './BadgeCard';
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 import { MembershipService, FREE_QUOTA, membershipState } from '../service/MembershipService';
 import { IapProduct, IapService, PRICE_FALLBACK } from '../service/IapService';
-import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
 import { PaywallSheet } from './PaywallSheet';
 import BuildProfile from 'BuildProfile';
 
@@ -46,6 +46,11 @@ export struct SettingsPage {
   @Local accountShortId: string = '';
   /** 终身会员价格（取自 AGC 商品信息，取不到时用兜底文案） */
   @Local memberPrice: string = PRICE_FALLBACK;
+  /** 购买面板是否展示（由 paywallStore 通知） */
+  @Local paywallShown: boolean = false;
+  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
+    this.paywallShown = visible;
+  };
   /** 云同步状态 */
   @Local syncing: boolean = false;
   @Local syncStatus: string = '';
@@ -91,6 +96,7 @@ export struct SettingsPage {
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
+    paywallStore.subscribe(this.paywallListener);
     this.loggedIn = AccountService.isLoggedIn();
     this.accountShortId = AccountService.shortId();
     this.playEnter();
@@ -100,6 +106,10 @@ export struct SettingsPage {
     this.loadEffectIndex();
     this.loadLitColor();
     this.loadMemberPrice();
+  }
+
+  aboutToDisappear(): void {
+    paywallStore.unsubscribe(this.paywallListener);
   }
 
   /** 会员价格必须用 AGC 配置的本地化价格（官方接入规范不允许自己写死价格） */
@@ -373,6 +383,19 @@ export struct SettingsPage {
 
           // 仅 debug 构建可见：清空会员状态，方便反复验证"第 6 座城市触发付费"
           if (BuildProfile.DEBUG) {
+            Text('模拟购买成功（仅调试可见）')
+              .fontSize(11)
+              .fontColor(Palette.goldLight)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+              .onClick(() => {
+                // AGC 侧开通应用内购买服务、商品还没创建之前，
+                // 用它先验证"开通之后"的界面与解锁逻辑（正式包不含此入口）。
+                MembershipService.grant('SANDBOX-MOCK-ORDER-000001', true).then(() => {
+                  promptAction.showToast({ message: '已模拟为终身会员（沙盒标记）' });
+                });
+              })
             Text('重置会员状态（仅调试可见）')
               .fontSize(11)
               .fontColor(Palette.textDim)
@@ -706,11 +729,12 @@ export struct SettingsPage {
         .position({ x: 0, y: 0 })
         // 购买面板挂在这一层：根 Stack 已经被"隐私政策"占用了一个 bindSheet，
         // 一个组件只能绑一个半模态，所以另找一个常驻节点承载。
-        .bindSheet(paywallStore.visible, this.paywallSheet(), {
+        .bindSheet(this.paywallShown, this.paywallSheet(), {
           height: SheetSize.MEDIUM,
           dragBar: true,
           backgroundColor: Palette.surface,
           onDisappear: () => {
+            this.paywallShown = false;
             paywallStore.close();
           }
         })

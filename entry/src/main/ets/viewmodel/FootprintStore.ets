@@ -120,15 +120,25 @@ export class FootprintStore {
   async lightUpBatch(codes: string[]): Promise<LightBatchResult> {
     const pending: string[] = [];
     let blocked: number = 0;
+    // 名额要在循环里**实时扣减**：canLight() 只看已落盘的额度，
+    // 同一批里前面几座刚用掉的名额还没写盘，不扣减就会一次性突破上限。
+    let slots: number = MembershipService.freeLeft();
     for (const code of codes) {
       if (this.visitedSet.has(code)) {
         continue;
       }
-      if (MembershipService.canLight(code)) {
-        pending.push(code);
-      } else {
+      if (!MembershipService.canLight(code)) {
         blocked = blocked + 1;
+        continue;
       }
+      if (MembershipService.usesFreeSlot(code)) {
+        if (slots <= 0) {
+          blocked = blocked + 1;
+          continue;
+        }
+        slots = slots - 1;
+      }
+      pending.push(code);
     }
     if (pending.length === 0) {
       return { lit: 0, blocked: blocked };

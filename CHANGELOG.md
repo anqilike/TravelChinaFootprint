@@ -4,6 +4,13 @@
 
 ### 新增
 
+- **免费体验 + 终身会员（应用内购买）**：免费体验 5 座市州级行政区，点亮第 6 座时弹出购买面板，
+  走系统收银台完成 **¥6.00 一次性买断**（非消耗型商品 `travelchina_lifetime`）。
+  实现依据华为官方《接入购买》《权益发放》《IAP Kit 接入规范》：
+  `queryEnvironmentStatus → queryProducts → createPurchase → 解码 jwsPurchaseOrder → 发放权益 → finishPurchase`；
+  启动时按官方要求查询一次已购非消耗型商品，覆盖卸载重装与换机场景；
+  购买面板不展示任何支付方式名称 / logo，价格一律使用 AGC 返回的本地化价格。
+  老用户已点亮的城市不回滚，只对"新增点亮"生效。接入步骤见 `docs/应用内购买接入指南.md`。
 - **华为账号一键登录**：用 Account Kit 官方组件 `LoginWithHuaweiIDButton`（自带华为账号授权页与
   用户协议勾选），登录成功后只在本机保存 `openID` / `unionID`，用于将来区分云端数据归属；
   不保存 authorizationCode / idToken 等临时凭据。未登录也能完整使用全部本地功能。

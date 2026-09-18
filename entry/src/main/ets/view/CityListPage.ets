@@ -2,6 +2,9 @@ import { curves, promptAction } from '@kit.ArkUI';
 import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
 import { footprintStore } from '../viewmodel/FootprintStore';
+import { LightBatchResult } from '../viewmodel/FootprintStore';
+import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallSheet } from './PaywallSheet';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { WindowService } from '../common/WindowService';
 
@@ -63,10 +66,17 @@ export struct CityListPage {
     }
     this.submitting = true;
     try {
-      const count: number = await footprintStore.lightUpBatch(this.selected);
-      promptAction.showToast({ message: `已点亮 ${count} 座城市` });
+      const result: LightBatchResult = await footprintStore.lightUpBatch(this.selected);
+      if (result.lit > 0) {
+        promptAction.showToast({ message: `已点亮 ${result.lit} 座城市` });
+      }
       this.selected = [];
       this.batchMode = false;
+      // 免费额度不够的部分：引导开通会员，开通后由页面的批量入口重新提交
+      if (result.blocked > 0) {
+        paywallStore.onPurchased = undefined;
+        paywallStore.open('');
+      }
     } catch (err) {
       promptAction.showToast({ message: '批量点亮失败，请重试' });
     } finally {
@@ -91,9 +101,30 @@ export struct CityListPage {
       await footprintStore.unlight(city.code);
       promptAction.showToast({ message: `已取消点亮 ${city.name}` });
     } else {
-      await footprintStore.lightUp(city.code);
-      promptAction.showToast({ message: `已点亮 ${city.name}` });
+      const ok: boolean = await footprintStore.lightUp(city.code);
+      if (ok) {
+        promptAction.showToast({ message: `已点亮 ${city.name}` });
+      } else {
+        this.requestMembership(city);
+      }
     }
+  }
+
+  /** 免费额度用完：先弹购买面板，开通成功后自动把这座城市点亮 */
+  private requestMembership(city: CityItem): void {
+    paywallStore.onPurchased = () => {
+      footprintStore.lightUp(city.code).then((done: boolean) => {
+        if (done) {
+          promptAction.showToast({ message: `已点亮 ${city.name}` });
+        }
+      });
+    };
+    paywallStore.open(city.name);
+  }
+
+  @Builder
+  paywallSheet() {
+    PaywallSheet()
   }
 
   build() {
@@ -321,6 +352,14 @@ export struct CityListPage {
     .opacity(this.entered ? 1 : 0)
     .translate({ y: this.entered ? 0 : 14 })
     .animation({ duration: Motion.normal + 80, curve: curves.springMotion(0.42, 0.9) })
+    .bindSheet(paywallStore.visible, this.paywallSheet(), {
+      height: SheetSize.MEDIUM,
+      dragBar: true,
+      backgroundColor: Palette.surface,
+      onDisappear: () => {
+        paywallStore.close();
+      }
+    })
   }
 
 }

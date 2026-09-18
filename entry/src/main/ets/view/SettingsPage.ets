@@ -19,6 +19,11 @@ import { AchievementEffects, EffectInfo } from '../viewmodel/AchievementEffects'
 import { BadgeCell } from '../viewmodel/BadgeCell';
 import { BadgeCard } from './BadgeCard';
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
+import { MembershipService, FREE_QUOTA, membershipState } from '../service/MembershipService';
+import { IapProduct, IapService, PRICE_FALLBACK } from '../service/IapService';
+import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallSheet } from './PaywallSheet';
+import BuildProfile from 'BuildProfile';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'SettingsPage';
@@ -39,6 +44,8 @@ export struct SettingsPage {
   /** 华为账号登录态 */
   @Local loggedIn: boolean = false;
   @Local accountShortId: string = '';
+  /** 终身会员价格（取自 AGC 商品信息，取不到时用兜底文案） */
+  @Local memberPrice: string = PRICE_FALLBACK;
   /** 云同步状态 */
   @Local syncing: boolean = false;
   @Local syncStatus: string = '';
@@ -92,6 +99,31 @@ export struct SettingsPage {
     this.demoCell.target = 1;
     this.loadEffectIndex();
     this.loadLitColor();
+    this.loadMemberPrice();
+  }
+
+  /** 会员价格必须用 AGC 配置的本地化价格（官方接入规范不允许自己写死价格） */
+  private async loadMemberPrice(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const product: IapProduct | undefined = await IapService.queryProduct(context);
+      this.memberPrice = product === undefined ? PRICE_FALLBACK : product.priceLabel;
+    } catch (err) {
+      this.memberPrice = PRICE_FALLBACK;
+    }
+  }
+
+  /** 会员卡片的副标题：区分"已开通"与"还剩几座免费额度" */
+  private memberSubtitle(): string {
+    if (membershipState.member) {
+      const sandbox: string = membershipState.sandbox ? '（沙盒测试）' : '';
+      return `订单 ${membershipState.orderShort}${sandbox} · 全部 ${CityRepository.total()} 座城市已解锁`;
+    }
+    const left: number = FREE_QUOTA - membershipState.freeUsed;
+    if (left > 0) {
+      return `免费体验 ${FREE_QUOTA} 座 · 已用 ${membershipState.freeUsed} 座，还剩 ${left} 座`;
+    }
+    return `免费体验的 ${FREE_QUOTA} 座已用完，开通后无限点亮`;
   }
 
   private async loadEffectIndex(): Promise<void> {
@@ -280,6 +312,87 @@ export struct SettingsPage {
         .backgroundColor('#2E0A1020')
         .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
         .border({ width: 0.5, color: '#1FFFFFFF' })
+
+        // 终身会员（应用内购买）
+        Column() {
+          Row() {
+            Column() {
+              Text('★')
+                .fontSize(20)
+                .fontColor(Palette.gold)
+            }
+            .width(44)
+            .height(44)
+            .borderRadius(14)
+            .backgroundColor(membershipState.member ? '#40F5C542' : '#1AFFFFFF')
+            .justifyContent(FlexAlign.Center)
+            .margin({ right: 14 })
+
+            Column() {
+              Text(membershipState.member ? '终身会员 · 已开通' : '开通终身会员')
+                .fontSize(15)
+                .fontColor(Palette.text)
+              Text(this.memberSubtitle())
+                .fontSize(11)
+                .fontColor(Palette.textDim)
+                .margin({ top: 4 })
+                .maxLines(2)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+          }
+          .width('100%')
+
+          if (!membershipState.member) {
+            Button(`${this.memberPrice} 开通终身会员`)
+              .width('100%')
+              .height(44)
+              .borderRadius(22)
+              .backgroundColor(Palette.gold)
+              .fontColor('#1A1405')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .margin({ top: 14 })
+              .onClick(() => {
+                paywallStore.onPurchased = undefined;
+                paywallStore.open('');
+              })
+
+            Text('已购买过？恢复购买')
+              .fontSize(13)
+              .fontColor(Palette.textDim)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ top: 10, bottom: 10 })
+              .onClick(() => {
+                paywallStore.restore().then((ok: boolean) => {
+                  promptAction.showToast({ message: ok ? '已找回你的终身会员' : '没有查到购买记录' });
+                });
+              })
+          }
+
+          // 仅 debug 构建可见：清空会员状态，方便反复验证"第 6 座城市触发付费"
+          if (BuildProfile.DEBUG) {
+            Text('重置会员状态（仅调试可见）')
+              .fontSize(11)
+              .fontColor(Palette.textDim)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+              .onClick(() => {
+                MembershipService.resetForDebug().then(() => {
+                  promptAction.showToast({ message: '会员状态已重置' });
+                });
+              })
+          }
+        }
+        .width('100%')
+        .padding(16)
+        .margin({ top: 12 })
+        .borderRadius(Dimens.cardRadius)
+        .backgroundColor('#2E0A1020')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+        .border({ width: 0.5, color: membershipState.member ? '#4DF5C542' : '#1FFFFFFF' })
 
         // 数据
         Text('数据')
@@ -591,6 +704,16 @@ export struct SettingsPage {
         })
         .hitTestBehavior(HitTestMode.None)
         .position({ x: 0, y: 0 })
+        // 购买面板挂在这一层：根 Stack 已经被"隐私政策"占用了一个 bindSheet，
+        // 一个组件只能绑一个半模态，所以另找一个常驻节点承载。
+        .bindSheet(paywallStore.visible, this.paywallSheet(), {
+          height: SheetSize.MEDIUM,
+          dragBar: true,
+          backgroundColor: Palette.surface,
+          onDisappear: () => {
+            paywallStore.close();
+          }
+        })
     }
     .width('100%')
     .height('100%')
@@ -691,5 +814,10 @@ export struct SettingsPage {
     }
     .width('100%')
     .padding({ top: 14, bottom: 14 })
+  }
+
+  @Builder
+  paywallSheet() {
+    PaywallSheet()
   }
 }

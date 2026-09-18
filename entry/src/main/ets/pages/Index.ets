@@ -6,6 +6,8 @@ import { curves } from '@kit.ArkUI';
 import { DatabaseHelper } from '../repository/DatabaseHelper';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { AccountService } from '../service/AccountService';
+import { MembershipService } from '../service/MembershipService';
+import { paywallStore } from '../viewmodel/PaywallStore';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
@@ -125,6 +127,13 @@ struct Index {
       await DatabaseHelper.init(context);
       await footprintStore.init(context);
       await AccountService.init(context);
+      await MembershipService.init(context);
+      // 老用户迁移：升级到付费版之前点亮的城市不回滚，只是把额度记满
+      await MembershipService.ensureMigration(footprintStore.visitedCodes);
+      paywallStore.attach(context);
+      // 官方《权益发放》要求：单机应用启动时查一次已购非消耗型商品，
+      // 覆盖"卸载重装 / 换新手机"。静默执行，不阻塞界面，也不弹任何提示。
+      paywallStore.restoreOnLaunch();
       await WindowService.measure(context);
       this.safeBottom = WindowService.safeBottom;
       // 材质对象要等 MaterialKit.init() 之后再取；这里也量到了手势条高度，重新构造一次修饰器

@@ -11,6 +11,9 @@ import { LocationService } from '../service/LocationService';
 import { Dimens, MapDefaults, MapLabelStyle, Motion, Palette } from '../common/Theme';
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 import { AchievementEngine } from '../viewmodel/AchievementEngine';
+import { FREE_QUOTA, membershipState } from '../service/MembershipService';
+import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallSheet } from './PaywallSheet';
 import { WindowService } from '../common/WindowService';
 
 const DOMAIN: number = 0x0000;
@@ -1138,7 +1141,17 @@ export struct MapPage {
             })
         }
 
-        Button(footprintStore.isVisited(this.selectedCity()!.code) ? '取消点亮（移除全部到访记录）' : '保存并点亮')
+        // 免费额度提示：只在"还没点亮这座城市 + 还不是会员"时出现，
+        // 已开通会员的用户不需要看到任何与付费相关的信息。
+        if (!footprintStore.isVisited(this.selectedCity()!.code) && !membershipState.member) {
+          Text(this.quotaHint())
+            .fontSize(12)
+            .fontColor(this.quotaLeft() > 0 ? Palette.textDim : Palette.goldLight)
+            .width('100%')
+            .margin({ bottom: 10 })
+        }
+
+        Button(this.primaryActionLabel())
           .width('100%')
           .height(44)
           .borderRadius(Dimens.pillRadius)
@@ -1180,11 +1193,74 @@ export struct MapPage {
       await footprintStore.unlight(city.code);
       promptAction.showToast({ message: `已取消点亮 ${city.name}` });
     } else {
-      await footprintStore.lightUp(city.code, this.selectedTag, this.noteInput);
-      promptAction.showToast({ message: `已点亮 ${city.name}` });
+      const ok: boolean = await footprintStore.lightUp(city.code, this.selectedTag, this.noteInput);
+      if (ok) {
+        promptAction.showToast({ message: `已点亮 ${city.name}` });
+        // 操作完成后关闭卡片，让用户立刻看到点亮效果
+        this.sheetShown = false;
+        return;
+      }
+      // 免费额度用完：收起打卡卡片，弹出购买面板；开通成功后自动补点亮这座城市
+      this.sheetShown = false;
+      this.requestMembership(city);
+      return;
     }
     // 操作完成后关闭卡片，让用户立刻看到点亮效果
     this.sheetShown = false;
+  }
+
+  /** 剩余免费名额 */
+  private quotaLeft(): number {
+    const left: number = FREE_QUOTA - membershipState.freeUsed;
+    return left > 0 ? left : 0;
+  }
+
+  private quotaHint(): string {
+    const left: number = this.quotaLeft();
+    if (left > 0) {
+      return `免费体验还剩 ${left} 座城市（共 ${FREE_QUOTA} 座）`;
+    }
+    return `免费体验的 ${FREE_QUOTA} 座城市已用完，点亮新城市需开通终身会员`;
+  }
+
+  /** 主按钮文案：额度用完时把"保存并点亮"换成"开通会员并点亮"，避免点了没反应 */
+  private primaryActionLabel(): string {
+    const city: CityItem | undefined = this.selectedCity();
+    if (city === undefined) {
+      return '保存并点亮';
+    }
+    if (footprintStore.isVisited(city.code)) {
+      return '取消点亮（移除全部到访记录）';
+    }
+    if (!membershipState.member && this.quotaLeft() === 0) {
+      return '开通会员并点亮';
+    }
+    return '保存并点亮';
+  }
+
+  /** 弹出购买面板，并约定"开通成功后自动点亮这座城市" */
+  private requestMembership(city: CityItem): void {
+    const tag: string = this.selectedTag;
+    const note: string = this.noteInput;
+    paywallStore.onPurchased = () => {
+      footprintStore.lightUp(city.code, tag, note).then((done: boolean) => {
+        if (done) {
+          promptAction.showToast({ message: `已点亮 ${city.name}` });
+        }
+      });
+    };
+    paywallStore.open(city.name);
+  }
+
+  /** 地图顶部的"免费名额已用完"入口（不针对具体城市） */
+  private openPaywallFromMap(): void {
+    paywallStore.onPurchased = undefined;
+    paywallStore.open('');
+  }
+
+  @Builder
+  paywallSheet() {
+    PaywallSheet()
   }
 
   /** 打卡标签选项（取值与 model/VisitRecord 的 VisitTag 对应） */
@@ -1332,6 +1408,33 @@ export struct MapPage {
         .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: ThemeColorMode.DARK })
         .border({ width: 0.5, color: '#1FFFFFFF' })
         .shadow({ radius: 20, color: '#8C000000', offsetX: 0, offsetY: 8 })
+
+        // 免费名额用完后，在地图顶部常驻一个开通入口。
+        // 放在进度胶囊**下面**而不是塞进胶囊里：付费信息不该占用看数据的位置，
+        // 而且只在"额度用完 + 未开通"时出现，普通用户不会被打扰。
+        if (!membershipState.member && this.quotaLeft() === 0) {
+          Button() {
+            Row() {
+              Text('★')
+                .fontSize(12)
+                .fontColor(Palette.gold)
+              Text('免费名额已用完 · 开通终身会员')
+                .fontSize(13)
+                .fontColor(Palette.text)
+                .margin({ left: 6 })
+            }
+          }
+          .height(36)
+          .padding({ left: 14, right: 14 })
+          .borderRadius(18)
+          .backgroundColor('#B30C1320')
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: ThemeColorMode.DARK })
+          .border({ width: 0.5, color: '#33F5C542' })
+          .margin({ top: 8 })
+          .onClick(() => {
+            this.openPaywallFromMap();
+          })
+        }
       }
       .width('100%')
       .padding({ left: 12, right: 12 })
@@ -1340,6 +1443,16 @@ export struct MapPage {
       .opacity(this.chromeIn ? 1 : 0)
       .translate({ y: this.chromeIn ? 0 : -12 })
       .animation({ duration: 380, curve: curves.springMotion(0.42, 0.9) })
+      // 购买面板单独挂在这个节点上：ArkUI 的一个组件只能绑一个 bindSheet，
+      // 根节点已经被"城市卡片"占用，所以另找一个稳定存在的节点承载。
+      .bindSheet(paywallStore.visible, this.paywallSheet(), {
+        height: SheetSize.MEDIUM,
+        dragBar: true,
+        backgroundColor: Palette.surface,
+        onDisappear: () => {
+          paywallStore.close();
+        }
+      })
 
       // 右侧悬浮控件：缩放 / 定位 / 全国 / 过滤。
       // 底图自带的缩放、指南针、比例尺、定位按钮已在 bindMapEvents 中关闭，

@@ -36,6 +36,8 @@
 | 真机运行 | ✅ Mate 80（HarmonyOS 7.0.0 / API 26）实测通过 |
 | 沉浸光感 | ✅ 底部页签栏走系统材质（`barFloatingStyle`），实测有模糊折射；鸿蒙 6 自动降级 |
 | 隐私合规 | ✅ 首次启动同意弹层 + 应用内隐私政策 + 一键清除本机数据 |
+| 华为账号 | ✅ Account Kit 官方一键登录（openID / unionID 仅存本机） |
+| 终身会员（应用内购买） | ⚙️ 代码已完成（免费 5 座 + ¥6 买断）。**待 AGC 侧开通应用内购买服务并创建商品**，见 [应用内购买接入指南](docs/应用内购买接入指南.md) |
 
 ---
 
@@ -157,6 +159,33 @@ TravelChinaFootprint/
 | P-06 | 批量点亮（清单页批量模式，含事务写入） | 3.3 | ✅ |
 | P-09 | 分享海报 | 3.3 | ⏳ 待做 |
 | P-12 | 桌面服务卡片（Form Kit） | 3.3 | ⏳ 待做 |
+| F-06 | 免费体验 + 终身会员（应用内购买 ¥6，买断） | 付费章节 | ✅ 代码完成，待 AGC 配置商品 |
+
+---
+
+## 五之二、免费体验与终身会员
+
+产品规则：
+
+- **免费体验 5 座**市州级行政区（终身额度，不是每月刷新）；
+- 点亮**第 6 座**时弹出购买面板，走系统收银台完成 **¥6.00 一次性买断**；
+- 老用户**已点亮的城市不回滚**，只是"再点亮新城市"时才需要开通；
+- 卸载重装 / 换新手机后，用同一华为账号可自动找回会员。
+
+代码落点：
+
+| 关注点 | 文件 |
+|---|---|
+| 免费额度与会员状态 | `entry/src/main/ets/service/MembershipService.ets` |
+| IAP Kit 封装（查询商品 / 购买 / 恢复 / 确认发货） | `entry/src/main/ets/service/IapService.ets` |
+| 订单 JWS 解码与数据模型 | `entry/src/main/ets/model/IapModels.ets` |
+| 购买流程与全局状态 | `entry/src/main/ets/viewmodel/PaywallStore.ets` |
+| 购买面板 UI | `entry/src/main/ets/view/PaywallSheet.ets` |
+| 拦截入口（唯一） | `FootprintStore.lightUp() / lightUpBatch()` |
+
+AGC 侧要做的四件事（详见 [应用内购买接入指南](docs/应用内购买接入指南.md)）：
+开通商户服务 → 开启并激活应用内购买服务 → 创建非消耗型商品 `travelchina_lifetime`（¥6.00）
+→ 重新申请发布 Profile 并手动签名。
 
 ---
 

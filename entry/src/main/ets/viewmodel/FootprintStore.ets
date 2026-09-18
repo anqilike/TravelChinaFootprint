@@ -3,12 +3,19 @@ import { common } from '@kit.AbilityKit';
 import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
 import { VisitRepository } from '../repository/VisitRepository';
+import { MembershipService } from '../service/MembershipService';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'FootprintStore';
 
 /** 点亮状态变化的监听器（地图页用它做增量刷新） */
 export type FootprintListener = (code: string, visited: boolean) => void;
+
+/** 批量点亮的结果：成功若干座，另有若干座因为需要会员被拦下 */
+export interface LightBatchResult {
+  lit: number;
+  blocked: number;
+}
 
 /**
  * 全局足迹状态（状态管理 V2）。
@@ -75,14 +82,25 @@ export class FootprintStore {
     }
   }
 
-  /** 点亮一座城市（带默认的到访记录） */
-  async lightUp(code: string, tag: string = 'other', note: string = ''): Promise<void> {
+  /**
+   * 点亮一座城市（带默认的到访记录）。
+   *
+   * 返回 false 表示被会员门槛拦下（免费额度用完且未开通会员）——
+   * 会员判断统一放在这里，地图页 / 清单页 / 批量点亮都走同一条路径，
+   * 避免以后新增入口时漏掉拦截（漏一处就等于开了后门）。
+   */
+  async lightUp(code: string, tag: string = 'other', note: string = ''): Promise<boolean> {
     if (this.visitedSet.has(code)) {
-      return;
+      return true;
+    }
+    if (!MembershipService.canLight(code)) {
+      return false;
     }
     await VisitRepository.addVisit(code, Date.now(), tag, note, 0);
+    await MembershipService.consumeFreeSlot(code);
     this.applyChange(code, true);
     await this.refreshStats();
+    return true;
   }
 
   /** 取消点亮 */
@@ -95,28 +113,38 @@ export class FootprintStore {
     await this.refreshStats();
   }
 
-  /** 批量点亮 */
-  async lightUpBatch(codes: string[]): Promise<number> {
+  /**
+   * 批量点亮：能点亮的先点亮，超出免费额度的部分返回 blocked 交给页面弹购买面板。
+   * （不做"要么全成功要么全失败"，否则用户选了 10 座却一座都点不亮，体验更差。）
+   */
+  async lightUpBatch(codes: string[]): Promise<LightBatchResult> {
     const pending: string[] = [];
+    let blocked: number = 0;
     for (const code of codes) {
-      if (!this.visitedSet.has(code)) {
+      if (this.visitedSet.has(code)) {
+        continue;
+      }
+      if (MembershipService.canLight(code)) {
         pending.push(code);
+      } else {
+        blocked = blocked + 1;
       }
     }
     if (pending.length === 0) {
-      return 0;
+      return { lit: 0, blocked: blocked };
     }
     await VisitRepository.addVisitsBatch(pending);
     for (const code of pending) {
+      await MembershipService.consumeFreeSlot(code);
       this.applyChange(code, true);
     }
     await this.refreshStats();
-    return pending.length;
+    return { lit: pending.length, blocked: blocked };
   }
 
   /** 由"当前定位城市"点亮 */
-  async lightUpCurrent(city: CityItem): Promise<void> {
-    await this.lightUp(city.code, 'other', '');
+  async lightUpCurrent(city: CityItem): Promise<boolean> {
+    return await this.lightUp(city.code, 'other', '');
   }
 
   private applyChange(code: string, visited: boolean): void {

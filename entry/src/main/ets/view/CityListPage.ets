@@ -4,8 +4,7 @@ import { CityItem } from '../model/CityDict';
 import { CityRepository } from '../repository/CityRepository';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { LightBatchResult } from '../viewmodel/FootprintStore';
-import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
-import { PaywallSheet } from './PaywallSheet';
+import { paywallStore } from '../viewmodel/PaywallStore';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { WindowService } from '../common/WindowService';
 
@@ -28,21 +27,11 @@ export struct CityListPage {
   @Local safeBottom: number = 0;
   /** 入场动效标记：首次进入本页时由 false → true，配合 .animation 做淡入上浮 */
   @Local entered: boolean = false;
-  /** 购买面板是否展示（由 paywallStore 通知，本页只负责把状态喂给 bindSheet） */
-  @Local paywallShown: boolean = false;
-  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
-    this.paywallShown = visible;
-  };
 
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
-    paywallStore.subscribe(this.paywallListener);
     this.playEnter();
-  }
-
-  aboutToDisappear(): void {
-    paywallStore.unsubscribe(this.paywallListener);
   }
 
   /**
@@ -140,10 +129,6 @@ export struct CityListPage {
     paywallStore.open(city.name);
   }
 
-  @Builder
-  paywallSheet() {
-    PaywallSheet()
-  }
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
@@ -363,18 +348,6 @@ export struct CityListPage {
         })
         .hitTestBehavior(HitTestMode.None)
         .position({ x: 0, y: 0 })
-        // 购买面板挂在这个"常驻叶子节点"上，而不是根 Stack：
-        // 批量点亮会大范围重建列表（根节点子树全变），挂在根节点上的半模态
-        // 实测会被这次重建顶掉（面板闪不出来）；挂在不参与列表重建的节点上才稳定。
-        .bindSheet(this.paywallShown, this.paywallSheet(), {
-          height: SheetSize.MEDIUM,
-          dragBar: true,
-          backgroundColor: Palette.surface,
-          onDisappear: () => {
-            this.paywallShown = false;
-            paywallStore.close();
-          }
-        })
     }
     .width('100%')
     .height('100%')

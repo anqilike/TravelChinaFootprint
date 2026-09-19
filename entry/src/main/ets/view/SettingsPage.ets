@@ -21,8 +21,7 @@ import { BadgeCard } from './BadgeCard';
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 import { MembershipService, FREE_QUOTA, membershipState } from '../service/MembershipService';
 import { IapProduct, IapService, PRICE_FALLBACK } from '../service/IapService';
-import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
-import { PaywallSheet } from './PaywallSheet';
+import { paywallStore } from '../viewmodel/PaywallStore';
 import BuildProfile from 'BuildProfile';
 
 const DOMAIN: number = 0x0000;
@@ -46,11 +45,6 @@ export struct SettingsPage {
   @Local accountShortId: string = '';
   /** 终身会员价格（取自 AGC 商品信息，取不到时用兜底文案） */
   @Local memberPrice: string = PRICE_FALLBACK;
-  /** 购买面板是否展示（由 paywallStore 通知） */
-  @Local paywallShown: boolean = false;
-  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
-    this.paywallShown = visible;
-  };
   /** 云同步状态 */
   @Local syncing: boolean = false;
   @Local syncStatus: string = '';
@@ -96,7 +90,6 @@ export struct SettingsPage {
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
-    paywallStore.subscribe(this.paywallListener);
     this.loggedIn = AccountService.isLoggedIn();
     this.accountShortId = AccountService.shortId();
     this.playEnter();
@@ -106,10 +99,6 @@ export struct SettingsPage {
     this.loadEffectIndex();
     this.loadLitColor();
     this.loadMemberPrice();
-  }
-
-  aboutToDisappear(): void {
-    paywallStore.unsubscribe(this.paywallListener);
   }
 
   /** 会员价格必须用 AGC 配置的本地化价格（官方接入规范不允许自己写死价格） */
@@ -727,17 +716,6 @@ export struct SettingsPage {
         })
         .hitTestBehavior(HitTestMode.None)
         .position({ x: 0, y: 0 })
-        // 购买面板挂在这一层：根 Stack 已经被"隐私政策"占用了一个 bindSheet，
-        // 一个组件只能绑一个半模态，所以另找一个常驻节点承载。
-        .bindSheet(this.paywallShown, this.paywallSheet(), {
-          height: SheetSize.MEDIUM,
-          dragBar: true,
-          backgroundColor: Palette.surface,
-          onDisappear: () => {
-            this.paywallShown = false;
-            paywallStore.close();
-          }
-        })
     }
     .width('100%')
     .height('100%')
@@ -840,8 +818,4 @@ export struct SettingsPage {
     .padding({ top: 14, bottom: 14 })
   }
 
-  @Builder
-  paywallSheet() {
-    PaywallSheet()
-  }
 }

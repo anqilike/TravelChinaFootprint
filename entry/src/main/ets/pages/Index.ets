@@ -7,7 +7,8 @@ import { DatabaseHelper } from '../repository/DatabaseHelper';
 import { footprintStore } from '../viewmodel/FootprintStore';
 import { AccountService } from '../service/AccountService';
 import { MembershipService } from '../service/MembershipService';
-import { paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
+import { PaywallSheet } from '../view/PaywallSheet';
 import { Dimens, Motion, Palette } from '../common/Theme';
 import { MaterialKit } from '../common/MaterialKit';
 import { WindowService } from '../common/WindowService';
@@ -93,13 +94,29 @@ struct Index {
   @Local consentChecked: boolean = false;
   /** 是否已同意隐私政策；未同意时主界面之上盖一层同意弹层 */
   @Local consentGiven: boolean = false;
+  /**
+   * 购买面板是否展示。
+   *
+   * 这里必须由**主框架**统一承载：地图页 / 清单页 / 我的页在 Tabs 里同时活着，
+   * 如果三个页面各挂一个 bindSheet，一次 open() 会同时弹出多份面板
+   * （实测就是"要点两次关闭"的那个 bug）。
+   */
+  @Local paywallShown: boolean = false;
+  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
+    this.paywallShown = visible;
+  };
   private tabsController: TabsController = new TabsController();
 
   aboutToAppear(): void {
     // 再试一次：Ability.onCreate 阶段窗口还没就绪，材质能力探测可能返回 false，
     // 这里（UI 上下文已可用）重试，成功后底部页签栏的材质才会真的渲染出来。
     MaterialKit.init();
+    paywallStore.subscribe(this.paywallListener);
     this.start();
+  }
+
+  aboutToDisappear(): void {
+    paywallStore.unsubscribe(this.paywallListener);
   }
 
   /**
@@ -169,6 +186,17 @@ struct Index {
             })
             // 背景层要铺到状态栏和导航条底下（官方"组件安全区方案"：背景类元素用 expandSafeArea 延伸绘制）
             .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+            // 购买面板挂在背景层（常驻、不参与内容重建）：
+            // 整个 App 只此一份，切页签也不会多弹一个。
+            .bindSheet(this.paywallShown, this.paywallSheet(), {
+              height: SheetSize.MEDIUM,
+              dragBar: true,
+              backgroundColor: Palette.surface,
+              onDisappear: () => {
+                this.paywallShown = false;
+                paywallStore.close();
+              }
+            })
 
           Column()
             .width(300)
@@ -246,6 +274,12 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(Palette.bg)
+  }
+
+  /** 全局唯一的购买面板（见 paywallShown 的说明） */
+  @Builder
+  paywallSheet() {
+    PaywallSheet()
   }
 
   @Builder

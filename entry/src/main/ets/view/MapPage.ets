@@ -12,8 +12,7 @@ import { Dimens, MapDefaults, MapLabelStyle, Motion, Palette } from '../common/T
 import { LitColors, LitColorPreset } from '../viewmodel/LitColors';
 import { AchievementEngine } from '../viewmodel/AchievementEngine';
 import { FREE_QUOTA, membershipState } from '../service/MembershipService';
-import { PaywallVisibilityListener, paywallStore } from '../viewmodel/PaywallStore';
-import { PaywallSheet } from './PaywallSheet';
+import { paywallStore } from '../viewmodel/PaywallStore';
 import { WindowService } from '../common/WindowService';
 
 const DOMAIN: number = 0x0000;
@@ -178,11 +177,6 @@ export struct MapPage {
   @Local debugDropped: string = '';
   /** 当前选中的点亮配色编号（0~7，在「我的 → 点亮颜色」里切换） */
   @Local litColorIndex: number = 0;
-  /** 购买面板是否展示（由 paywallStore 通知，本页只负责喂给 bindSheet） */
-  @Local paywallShown: boolean = false;
-  private paywallListener: PaywallVisibilityListener = (visible: boolean) => {
-    this.paywallShown = visible;
-  };
   /**
    * 由父组件传入：当前是否停留在本页。
    * 点位闪烁只在页面可见时跑，切走就停（省电），切回来接着闪。
@@ -220,7 +214,6 @@ export struct MapPage {
   aboutToAppear(): void {
     this.safeTop = WindowService.safeTop;
     this.safeBottom = WindowService.safeBottom;
-    paywallStore.subscribe(this.paywallListener);
     this.mapOptions = {
       position: {
         target: { latitude: MapDefaults.centerLat, longitude: MapDefaults.centerLng },
@@ -302,7 +295,6 @@ export struct MapPage {
 
   aboutToDisappear(): void {
     footprintStore.unsubscribe(this.listener);
-    paywallStore.unsubscribe(this.paywallListener);
     this.stopBlinking();
   }
 
@@ -1282,11 +1274,6 @@ export struct MapPage {
     paywallStore.open('');
   }
 
-  @Builder
-  paywallSheet() {
-    PaywallSheet()
-  }
-
   /** 打卡标签选项（取值与 model/VisitRecord 的 VisitTag 对应） */
   private tagOptions(): TagOption[] {
     return [
@@ -1467,17 +1454,6 @@ export struct MapPage {
       .opacity(this.chromeIn ? 1 : 0)
       .translate({ y: this.chromeIn ? 0 : -12 })
       .animation({ duration: 380, curve: curves.springMotion(0.42, 0.9) })
-      // 购买面板单独挂在这个节点上：ArkUI 的一个组件只能绑一个 bindSheet，
-      // 根节点已经被"城市卡片"占用，所以另找一个稳定存在的节点承载。
-      .bindSheet(this.paywallShown, this.paywallSheet(), {
-        height: SheetSize.MEDIUM,
-        dragBar: true,
-        backgroundColor: Palette.surface,
-        onDisappear: () => {
-          this.paywallShown = false;
-          paywallStore.close();
-        }
-      })
 
       // 右侧悬浮控件：缩放 / 定位 / 全国 / 过滤。
       // 底图自带的缩放、指南针、比例尺、定位按钮已在 bindMapEvents 中关闭，

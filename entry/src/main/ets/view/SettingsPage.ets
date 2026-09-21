@@ -23,6 +23,7 @@ import { MembershipService, FREE_QUOTA, membershipState } from '../service/Membe
 import { IapProduct, IapService, PRICE_FALLBACK } from '../service/IapService';
 import { paywallStore } from '../viewmodel/PaywallStore';
 import BuildProfile from 'BuildProfile';
+import { DeveloperInfo } from '../common/DeveloperInfo';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'SettingsPage';
@@ -648,6 +649,14 @@ export struct SettingsPage {
           .margin({ top: 22, bottom: 8 })
 
         Column() {
+          // 开发者信息放在最前面：华为商户服务审核要看"关于页/隐私页展示应用由谁开发"，
+          // 上架审核也会核对，统一取自 common/DeveloperInfo.ets。
+          this.infoRow('应用名称', DeveloperInfo.APP_NAME)
+          Divider().color(Palette.line)
+          this.infoRow('开发者', DeveloperInfo.DEVELOPER)
+          Divider().color(Palette.line)
+          this.infoRow('联系邮箱', DeveloperInfo.CONTACT_EMAIL)
+          Divider().color(Palette.line)
           this.infoRow('地图服务', '华为 Map Kit（@kit.MapKit）')
           Divider().color(Palette.line)
           this.infoRow('地图审图号', '由地图服务提供方在地图上标注（本应用已开启显示）')

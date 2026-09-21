@@ -1,4 +1,5 @@
 import { Palette } from '../common/Theme';
+import { DeveloperInfo } from '../common/DeveloperInfo';
 
 /** 隐私政策的一节：小标题 + 正文 */
 interface PolicySection {
@@ -65,8 +66,11 @@ const POLICY_SECTIONS: PolicySection[] = [
   },
   {
     title: '八、联系我们',
-    body: '开发者：个人开发者（走遍中国）\n'
-      + '联系邮箱：【发布前请填写】\n'
+    // 这三行会被华为商户服务审核当作"应用开发者信息"的证明材料，
+    // 统一取自 common/DeveloperInfo.ets，改一处三处同步（应用内、网页版、关于页）。
+    body: `本应用「${DeveloperInfo.APP_NAME}」由 ${DeveloperInfo.DEVELOPER} 开发并提供。\n`
+      + `开发者：${DeveloperInfo.DEVELOPER}\n`
+      + `联系邮箱：${DeveloperInfo.CONTACT_EMAIL}\n`
       + '如果你对本政策有任何疑问、意见或投诉，可以通过上述邮箱联系我们，'
       + '我们将在 15 个工作日内回复。'
   }

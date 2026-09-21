@@ -16,7 +16,7 @@ export class DeveloperInfo {
    * 对外联系邮箱：出现在隐私政策与「关于」页，用于审核联系与用户投诉。
    * ⚠️ 必须换成真实可用的邮箱后再出商户服务材料截图。
    */
-  static readonly CONTACT_EMAIL: string = '（待填写：联系邮箱）';
+  static readonly CONTACT_EMAIL: string = 'lvzhifang2015@163.com';
   /** 版权署名 */
   static readonly COPYRIGHT: string = '© 2026 吕志方';
 }
